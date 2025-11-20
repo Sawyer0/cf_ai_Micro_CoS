@@ -38,7 +38,7 @@ export class Logger {
     }
 
     private log(level: LogLevel, message: string, context?: LogContext): void {
-        const logEntry = {
+        const logEntry: Record<string, any> = {
             level,
             timestamp: new Date().toISOString(),
             service: this.serviceName,

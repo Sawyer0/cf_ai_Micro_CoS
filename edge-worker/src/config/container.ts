@@ -15,6 +15,9 @@ import { D1EventLogAdapter } from '../adapters/persistence/d1-event-log.adapter'
 import { RateLimiter } from '../api/middleware/rate-limit';
 import { IdempotencyService } from '../api/idempotency';
 import { AppConfig } from './settings';
+import { ChatService } from '../application/chat.service';
+import { TaskService } from '../application/task.service';
+import { TravelService } from '../application/travel.service';
 
 export interface Container {
     logger: Logger;
@@ -29,11 +32,29 @@ export interface Container {
     chatRepository: D1ChatAdapter;
     taskRepository: D1TaskAdapter;
     eventLog: D1EventLogAdapter;
+
+    // Application Services
+    chatService: ChatService;
+    taskService: TaskService;
+    travelService: TravelService;
 }
 
 export function createContainer(env: any, config: AppConfig): Container {
     const logger = new Logger('edge-worker');
     const metrics = new AnalyticsEngineMetrics(env.ANALYTICS_ENGINE);
+
+    // Adapters
+    const llmAdapter = new WorkersAIAdapter(env.AI, logger);
+    const flightAdapter = new DuffelFlightAdapter(config.duffelApiKey || '', logger);
+    const calendarAdapter = new GoogleCalendarAdapter(logger);
+    const chatRepository = new D1ChatAdapter(env.D1, logger);
+    const taskRepository = new D1TaskAdapter(env.D1, logger);
+    const eventLog = new D1EventLogAdapter(env.D1, logger);
+
+    // Application Services
+    const chatService = new ChatService(chatRepository, llmAdapter, logger);
+    const taskService = new TaskService(taskRepository, logger);
+    const travelService = new TravelService(flightAdapter, logger);
 
     return {
         logger,
@@ -45,11 +66,16 @@ export function createContainer(env: any, config: AppConfig): Container {
         idempotency: new IdempotencyService(env.KV),
 
         // Adapters
-        llmAdapter: new WorkersAIAdapter(env.AI, logger),
-        flightAdapter: new DuffelFlightAdapter(config.duffelApiKey || '', logger),
-        calendarAdapter: new GoogleCalendarAdapter(logger),
-        chatRepository: new D1ChatAdapter(env.D1, logger),
-        taskRepository: new D1TaskAdapter(env.D1, logger),
-        eventLog: new D1EventLogAdapter(env.D1, logger)
+        llmAdapter,
+        flightAdapter,
+        calendarAdapter,
+        chatRepository,
+        taskRepository,
+        eventLog,
+
+        // Services
+        chatService,
+        taskService,
+        travelService
     };
 }

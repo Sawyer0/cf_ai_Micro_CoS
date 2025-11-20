@@ -21,6 +21,10 @@ export class Principal {
         return new Principal(sub, email);
     }
 
+    get id(): string {
+        return this.sub;
+    }
+
     equals(other: Principal): boolean {
         return this.sub === other.sub;
     }

@@ -33,12 +33,13 @@ export class Conversation {
         this.updatedAt = updatedAt;
     }
 
+
     static create(initialMessage: Message): Conversation {
         const now = new Date();
         return new Conversation(
             ConversationId.generate(),
             'active',
-            [initial Message],
+            [initialMessage],
             now,
             now
         );

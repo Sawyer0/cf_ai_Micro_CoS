@@ -1,24 +1,19 @@
 /**
- * CorrelationId - Immutable unique identifier for request tracing
+ * CorrelationId - Distributed tracing identifier
  * 
  * Value Object from Shared Kernel
- * Used across all bounded contexts for distributed tracing
+ * Links requests across services and logs
  */
 
-import { randomUUID } from 'crypto';
-
 export class CorrelationId {
-  private readonly value: string;
-
-  private constructor(value: string) {
+  private constructor(private readonly value: string) {
     if (!value || value.trim().length === 0) {
       throw new Error('CorrelationId cannot be empty');
     }
-    this.value = value;
   }
 
   static generate(): CorrelationId {
-    return new CorrelationId(randomUUID());
+    return new CorrelationId(crypto.randomUUID());
   }
 
   static fromString(value: string): CorrelationId {

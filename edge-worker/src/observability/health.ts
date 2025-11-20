@@ -75,6 +75,6 @@ export async function getSystemHealth(
     return {
         status: anyUnhealthy ? 'unhealthy' : allHealthy ? 'healthy' : 'degraded',
         checks,
-        timestamp: new Date().toISO String()
+        timestamp: new Date().toISOString()
     };
 }
