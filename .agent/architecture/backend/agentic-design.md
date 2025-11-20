@@ -31,14 +31,15 @@
 
 **Micro Chief of Staff adaptation:**
 
-* Worker + DO system implements hooks:
+* Worker + DO system implements event-driven patterns:
 
-  * `onUserMessage` → triggers Task Extraction
-  * `onCalendarEventDetected` → triggers Travel Planner
-  * `onToolResult` → triggers LLM reasoning to convert API output into actionable tasks
-* Hooks are tied to **correlation IDs** and event logs for observability
+  * `onUserMessage` → LLM processes message → extracts tasks if mentioned
+  * `onToolResult` → LLM reasons over tool output (e.g., flight options) → responds in chat
+  * All events tied to **correlation IDs** for observability
 
 **Benefit:** Makes the system reactive and auditable, without messy polling or hard-coded flows.
+
+**Note:** This is **chat-first, on-demand**. No automatic background processing. User asks, assistant responds.
 
 ---
 
@@ -54,6 +55,7 @@
 
   * User preferences (travel, preferred airlines, notification rules)
   * Task and trip history
+  * Chat history (messages with retention policies, see `chat-history-management.md`)
   * Decisions made by the assistant (why a flight was suggested, which task was prioritized)
 * LLM prompt includes memory context, so recommendations are consistent across sessions
 
@@ -82,10 +84,30 @@
 
 | Claude Pattern         | Micro Chief of Staff Adaptation                       | Benefit                                    |
 | ---------------------- | ----------------------------------------------------- | ------------------------------------------ |
-| Auto-activating skills | Travel Planner, Task Extraction, Daily Summary        | Proactive assistant behavior               |
+| Chat-activated skills  | Travel Search, Task Extraction, Summaries (on-demand) | User-controlled, predictable behavior      |
 | Modular skills         | Separate TS modules + prompt templates                | Maintainable, scalable, SOLID              |
-| Hooks / event triggers | Worker + DO event hooks for user input / tool results | Reactive, auditable, clean architecture    |
-| Context persistence    | DO memory for user data, task/trip history            | Continuity, consistent recommendations     |
-| Tool orchestration     | MCP Flight tool, Calendar API, Reminder DB            | Agentic behavior, extensible functionality |
+| Event-driven state     | Worker + DO event hooks for user messages             | Reactive, auditable, clean architecture    |
+| Context persistence    | DO memory for user data, task/trip/chat history       | Continuity, consistent recommendations     |
+| Tool orchestration     | flights-MCP (when user asks), Calendar API            | Extensible, user-initiated functionality   |
+
+---
+
+## **Flights-MCP Integration (Concrete Example)**
+
+The **Travel Search skill** demonstrates chat-initiated tool orchestration:
+
+1. **User asks in chat**: "Find me flights to Paris for May 10-15"
+2. **LLM detects intent** → extracts: destination=Paris, dates=May 10-15
+3. **Worker calls flights-MCP** → "SFO to CDG, May 10-15" → returns [flight1, flight2, ...]
+4. **LLM Ranking** → Llama 3.3 scores flights against user preferences + context → top 3 ranked options
+5. **Results stored** → UserBrainDO persists flight results in chat history
+6. **LLM streams response** → "Here are the best flights for your Paris trip..." → frontend displays in chat
+7. **User can ask follow-up** → "Book the first one" → creates task, confirms in chat
+
+This showcases:
+- **Chat-initiated workflows** (user asks → tool called → response in chat)
+- **Tool extensibility** (flights-MCP can be swapped or extended to hotel-MCP, car-MCP)
+- **LLM reasoning over tool outputs** (ranking flights with context)
+- **Persistence & observability** (correlation IDs track entire conversation)
 
 ---

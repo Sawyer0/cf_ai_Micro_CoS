@@ -18,9 +18,11 @@ Every update happens by sending an event into this DO.
 
 Any change inside the DO triggers outgoing notifications to clients:
 
+* `message.created` (user or assistant message)
 * `task.created`
 * `task.updated`
-* `message.stream`
+* `llm.token` (streaming tokens)
+* `message.completed` (assistant message finalized)
 * `assistant.plan.generated`
 * `state.synced`
 
@@ -52,12 +54,13 @@ These events go into the DO the same way user actions do.
 Even the chat request is just an input event:
 
 ```
-user.message
+user.message         → appended to messages[], triggers LLM
+assistant.message    → LLM response accumulated and stored
 user.request_plan
 user.create_task
 ```
 
-All roads lead to the DO.
+All roads lead to the DO. Messages are events that get reduced into the chat history state. See `chat-history-management.md` for event-to-message reduction logic.
 
 ---
 
@@ -249,3 +252,21 @@ running inside a Durable Object, with:
 * no eventual consistency traps
 
 
+
+
+---
+
+# **Chat History Integration**
+
+Chat messages are a core part of the event-driven architecture:
+
+* **Messages as events:** Every user and assistant message is an event (`user.message`, `assistant.message`)
+* **Event log:** Messages are appended to the event log and reduced into the `messages[]` array
+* **Retention:** In-memory limit of 100 messages; older messages archived to D1
+* **Idempotency:** Duplicate messages prevented via `event_id` tracking
+* **LLM context:** Recent messages (last 20) included in LLM prompts for continuity
+* **Realtime:** Message events (`message.created`, `llm.token`, `message.completed`) pushed to clients
+
+See `chat-history-management.md` for complete details on message lifecycle, archival, and client sync patterns.
+
+---

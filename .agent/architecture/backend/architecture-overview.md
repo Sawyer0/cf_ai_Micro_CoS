@@ -17,37 +17,39 @@ Treat this like a small **stateful monolith** built on Cloudflare primitives wit
 
 * **chat message** (text), with metadata: intent, channel, language
 * **voice message** (live stream) → S2T transcript
-* **task update** (create / update / complete task)
+* **task update** (create / update / complete task via chat or UI)
 * **preferences** (user settings, timezone, work hours, notification preferences)
-* **attachments / context snippets** (text or small documents pasted)
+* **attachments / context snippets** (text or small documents pasted in chat)
 * **explicit memory stores** (user-tags, short facts, pinned notes)
-* **system events** (scheduled job triggers, calendar webhook if integrated)
 
 ## Outputs (to user / external systems)
 
-* **LLM responses** (streamed tokens)
-* **actionable items** (task objects, reminders, calendar suggestions)
-* **daily plan / digest** (structured plan with prioritized items)
-* **notifications** (Realtime push or email/push via integration)
+* **LLM responses** (streamed tokens in chat)
+* **actionable items** (task objects, reminders, calendar suggestions - created when user asks)
+* **summaries** (when user asks "What's on my agenda?" or "Summarize my week")
 * **voice responses** (TTS audio where requested)
-* **state snapshots** (user memory view, last N messages)
+* **state snapshots** (user memory view, chat history, last N messages)
+* **travel suggestions** (ranked flight options when user asks "Find flights to X")
 
 # 2) High-level architecture
 
 ```
-Client (TanStack Start)
+Client (TanStack Start + OpenCore-UI)
   ↕ Realtime (bidirectional)  ←→  Worker API (Gateway)
   ↕ HTTP REST (TanStack Query) →  Worker API (Gateway)
   
 Worker API (single entry) 
-  ├─ Durable Object (UserBrainDO)  ← authoritative per-user state
-  ├─ Workers AI Llama 3.3 (via Workers AI) ← LLM & S2T / TTS
-  ├─ Workflows (Daily Planner / Reminders) ← scheduled orchestration
-  └─ KV / D1 (optional): long-tail storage / analytics
+   ├─ Durable Object: UserBrainDO  ← authoritative per-user state
+   ├─ Workers AI Llama 3.3 (via Workers AI) ← LLM & S2T / TTS
+   ├─ Tool Clients (FlightToolClient) ← external MCP integrations (flights-MCP)
+   └─ D1 (optional): message archival / analytics
 ```
 
-* **Monolith idea**: the Worker API is the core: handles auth, routes, LLM calls, and talks to the Durable Object which stores state for each user.
-* **Realtime**: Cloudflare Realtime (or WebSocket-like) used for streaming, presence, and push updates. HTTP endpoints handle transactional operations and TanStack Query caching.
+* **Monolith idea**: the Worker API is the core: handles auth, routes, LLM calls, tool invocations, and talks to the Durable Object which stores state for each user.
+* **Chat-first**: Everything happens in response to user chat messages. No automatic background processing.
+* **Tool Orchestration**: External MCP tools (flights-MCP) are called **only when user asks in chat** (e.g., "Find flights to Paris").
+* **Realtime**: Cloudflare Realtime used for streaming LLM responses token-by-token. HTTP endpoints handle transactional operations and TanStack Query caching.
+* **OpenCore-UI**: Frontend uses OpenCore-UI components (https://github.com/xxnuo/open-coreui) for chat interface.
 
 # 3) API surface (HTTP endpoints + example JSON)
 
@@ -81,14 +83,21 @@ Response (immediate ack):
 
 ### GET /api/v1/state`
 
-* returns memory snapshot, tasks, preferences
-  Response:
+* returns memory snapshot, tasks, preferences, chat history
+* Optional query params:
+  - `since=<timestamp>` — return only updates after this timestamp (for reconnection)
+  - `limit=<number>` — limit number of messages returned (default: 50)
+
+Response:
 
 ```json
 {
+  "userId":"user_123",
   "tasks":[{"id":"t1","title":"Follow up with Jim","due":"2025-11-21","status":"open"}],
   "notes":[...],
-  "preferences": {"workHours":"09:00-17:00","timezone":"America/New_York"}
+  "messages":[...],  // last N messages
+  "preferences": {"workHours":"09:00-17:00","timezone":"America/New_York"},
+  "lastSnapshotTs":1700000000
 }
 ```
 
@@ -124,6 +133,57 @@ Response: `{ "transcriptJobId": "tr_123" }`
 
 * used to store final outputs, create tasks, send notifications
 
+### POST /api/v1/calendar/event` — user adds/updates calendar event
+
+Request:
+```json
+{
+  "title":"Paris trip",
+  "start":"2025-05-10T08:00:00Z",
+  "end":"2025-05-15T22:00:00Z",
+  "description":"Business trip to Paris"
+}
+```
+
+Response: event stored, travel event detection triggered if applicable.
+
+### POST /api/v1/travel/{workflow_id}/select/{flight_id}` — user selects a flight
+
+Request:
+```json
+{}
+```
+
+Response: selection recorded, booking workflow initiated, tasks auto-generated.
+
+### GET /api/v1/travel/suggestions` — fetch current travel suggestions
+
+Response:
+```json
+{
+  "upcoming_trips":[
+    {
+      "travel_event_id":"evt_123",
+      "destination":"Paris",
+      "departure_date":"2025-05-10",
+      "workflow_id":"wf_456",
+      "ranked_flights":[
+        {
+          "rank":1,
+          "flight_id":"f1",
+          "airline":"Air France",
+          "departure":"08:00",
+          "arrival":"17:00",
+          "price":{"amount":1200,"currency":"USD"},
+          "score":0.95,
+          "reasoning":"Non-stop, early arrival for morning meeting"
+        }
+      ]
+    }
+  ]
+}
+```
+
 # 4) Durable Object: UserBrainDO
 
 One Durable Object instance per user (or per user-session group). It’s the single source of truth for short-to-mid term memory and conversation state.
@@ -138,12 +198,16 @@ type UserBrainState = {
   preferences: Record<string,string>;
   tasks: Task[]; // keep a capped list, index by id
   notes: Note[];
-  recentMessages: Message[]; // ring buffer (last 50)
+  messages: Message[]; // in-memory chat history (last 100, see chat-history-management.md)
   pinnedMemories: Memory[]; // facts & preferences
   activeSessions: { sessionId:string, lastSeen:number }[];
   planCache: { date:string, plan: Plan }[]; // cached daily plan
+  event_log: Event[]; // append-only event log for replay
+  last_snapshot_ts: number;
 }
 ```
+
+**Note:** Chat history is managed with retention policies and archival strategies. See `chat-history-management.md` for full details on message lifecycle, idempotency, and LLM context selection.
 
 ## Methods to expose (RPC from Worker)
 
@@ -177,22 +241,21 @@ LLM chat streaming.
 * Use Workers AI streaming capability (Llama 3.3 stream mode) and relay tokens.
 * Token events should include metadata: `{type:'token', token:'...', role:'assistant'}`, plus `event: 'done'` and structured actions like `event:'create_task', payload:{...}` so client can show "actionable" boxes mid-stream.
 * Ensure final output is parsed by the DO and a CID (conversation ID) stored.
+* DO accumulates tokens into assistant message and appends to `messages[]` on completion.
+* See `chat-history-management.md` for message lifecycle and event handling.
 
-# 6) Workflows / scheduled jobs
+# 6) No Background Workflows
 
-**Daily Planner Workflow**
+**This is a chat-first, on-demand assistant.**
 
-* Trigger: CRON-like at user-specified time (via Workflows or CRON Worker)
-* Steps:
+* No automatic daily planners or scheduled jobs
+* No background trip detection or automatic flight searches
+* Everything happens in response to user chat messages:
+  - User: "What's my plan for today?" → LLM generates summary from tasks/calendar
+  - User: "Find flights to Paris" → Calls flights-MCP → LLM ranks options → Responds in chat
+  - User: "Remind me to call John" → Extracts task → Creates in DO → Confirms in chat
 
-  1. For each active user (or users with planner enabled), call DO.getState()
-  2. Build prompt + context: recent messages, pinned memories, uncompleted tasks, preferences
-  3. Call Workers AI Llama to generate plan (stream not required)
-  4. call DO.setPlan(date, plan)
-  5. Notify user session via Realtime (`plan.available`)
-  6. Log metrics
-
-Workflows are ideal because they keep heavy orchestration off the request path.
+**Optional future enhancement:** User can opt-in to scheduled summaries (e.g., "Send me a daily summary at 8am"), but this is not part of the initial implementation.
 
 # 7) Frontend integration (TanStack Start + TanStack Query)
 
@@ -208,7 +271,9 @@ Workflows are ideal because they keep heavy orchestration off the request path.
 * On connect: identify session and subscribe to user channel
 * Receive events:
 
+  * `message.created` → new user or assistant message
   * `llm.token` → append token to streaming UI
+  * `message.completed` → assistant message finalized
   * `llm.action` → show action card (create task prompt)
   * `state.updated` → update TanStack cache with new state
 * Implement reconnection & backfill: on reconnect, refetch `/api/v1/state` and reconcile with local cache.
@@ -255,17 +320,24 @@ Workflows are ideal because they keep heavy orchestration off the request path.
 ### 1) User sends chat message (streaming)
 
 1. Client `POST /api/v1/message` with JWT.
-2. Worker authenticates, routes to UserBrainDO.handleMessage() — stores message.
-3. Worker initiates LLM streaming call.
-4. As tokens arrive, Worker emits `llm.token` events via Realtime to client.
-5. On LLM completion, Worker parses output → `applyLLMOutput()` on DO (creates tasks) → emits `state.updated` and `action.created` events.
+2. Worker authenticates, creates event with `event_id` and `request_id`.
+3. Worker routes to UserBrainDO.handleMessage() — appends event to log, adds message to `messages[]`.
+4. Worker initiates LLM streaming call with recent message context.
+5. As tokens arrive, Worker emits `llm.token` events via Realtime to client.
+6. DO accumulates tokens into assistant message.
+7. On LLM completion, Worker parses output → `applyLLMOutput()` on DO (creates tasks, finalizes message) → emits `message.completed`, `state.updated`, and `action.created` events.
 
-### 2) Daily Planner flow
+### 2) User requests flight search
 
-1. Workflow timer triggers Worker.
-2. Worker queries DO for users with planner enabled.
-3. Worker calls Llama for each user (batch or parallel, throttled).
-4. Results stored back into DO and `plan.available` pushed via Realtime.
+1. User sends chat message: "Find me flights to Boston next week"
+2. Worker authenticates, creates event with `event_id` and `request_id`.
+3. Worker routes to UserBrainDO.handleMessage() — stores message.
+4. Worker detects intent (flight search) → calls flights-MCP tool with parameters.
+5. flights-MCP returns flight options.
+6. Worker calls LLM to rank flights based on user preferences + context.
+7. LLM streams response with ranked flight suggestions.
+8. DO stores flight results and finalizes assistant message.
+9. Realtime pushes `message.completed` with flight suggestions to client.
 
 # 10) Example prompt templates (brief)
 
@@ -285,3 +357,39 @@ Workflows are ideal because they keep heavy orchestration off the request path.
 7. **Iterate**: replace mock LLM with Workers AI Llama 3.3; add S2T for voice.
 
 
+
+
+---
+
+# IMPORTANT CLARIFICATIONS
+
+## This is a Chat-First, On-Demand Assistant
+
+**NOT a background agent.** Everything happens in response to user chat messages:
+
+- User: "Find flights to Boston" → Assistant calls flights-MCP → Ranks options → Responds in chat
+- User: "What's on my agenda?" → Assistant reads tasks/calendar → Generates summary → Responds in chat  
+- User: "Remind me to call John" → Assistant extracts task → Creates in DO → Confirms in chat
+
+**NO automatic workflows:**
+- No automatic daily planners
+- No background trip detection
+- No scheduled summaries (unless user explicitly opts in - future enhancement)
+
+## Frontend: OpenCore-UI Components
+
+Use **OpenCore-UI** (https://github.com/xxnuo/open-coreui) for the chat interface:
+- Chat message components
+- Streaming message display
+- Action cards for tasks/flights
+- Modern, clean UI components
+
+## Simplified Architecture
+
+```
+User types in chat → Worker API → UserBrainDO → LLM (+ optional tool calls) → Stream response → User sees in chat
+```
+
+That's it. Simple, clean, chat-first.
+
+---

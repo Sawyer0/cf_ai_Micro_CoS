@@ -1,7 +1,7 @@
 ## FRONTEND ARCHITECTURE OVERVIEW (MICRO CoS)
 
 * **TanStack Start**
-* **OpenCore-UI**
+* **assistant-ui** (ChatGPT-like UI components)
 * **TanStack Query**
 * **Cloudflare Realtime client**
 * **Zod**
@@ -16,7 +16,7 @@ It will have :
 3. **Client/server boundaries**
 4. **Route architecture**
 5. **Core hooks**
-6. **How OpenCore-UI fits in**
+6. **How assistant-ui fits in**
 7. **Flow across the entire UI**
 ---
 
@@ -48,7 +48,7 @@ src/
     planner/
       PlannerCard.tsx
     ui/
-      (OpenCore-UI wrappers)
+      (assistant-ui components)
   lib/
     api/
       client.ts
@@ -101,14 +101,14 @@ It wraps the entire client app with:
 * **TanStack QueryClientProvider**
 * **RealtimeProvider**
 * **AuthProvider (optional)**
-* **OpenCore-UI ThemeProvider**
+* **AssistantRuntimeProvider (assistant-ui)**
 
 ```tsx
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RealtimeProvider } from "../lib/realtime/client";
-import { ThemeProvider } from "opencore-ui";
+import { AssistantRuntimeProvider } from "@assistant-ui/react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -123,7 +123,7 @@ export function ClientProviders({ children }) {
   return (
     <QueryClientProvider client={queryClient}>
       <RealtimeProvider>
-        <ThemeProvider>{children}</ThemeProvider>
+        {children}
       </RealtimeProvider>
     </QueryClientProvider>
   );
@@ -209,7 +209,7 @@ Handles:
 
 * sending messages
 * receiving LLM tokens
-* appending to OpenCore chat list
+* streaming to assistant-ui runtime
 
 ```tsx
 "use client";
@@ -294,32 +294,29 @@ export const usePlanner = () => {
 
 ---
 
-# **6. Integrating OpenCore-UI**
+# **6. Integrating assistant-ui**
 
 Inside `/chat/page.tsx`:
 
 ```tsx
-import { ChatLayout, ChatInput, ChatMessages } from "opencore-ui";
-import { useChatStream } from "../../lib/state/chat-store";
+import { AssistantRuntimeProvider } from "@assistant-ui/react";
+import { Thread } from "@assistant-ui/react-ui";
+import { useCloudflareRuntime } from "../../lib/assistant/runtime";
 
 export default function ChatPage() {
-  const { messages, sendMessage } = useChatStream();
+  const { runtime } = useCloudflareRuntime();
 
   return (
-    <ChatLayout
-      messages={<ChatMessages messages={messages} />}
-      input={
-        <ChatInput
-          onSubmit={(text) => sendMessage.mutate({ text })}
-          isLoading={sendMessage.isPending}
-        />
-      }
-    />
+    <AssistantRuntimeProvider runtime={runtime}>
+      <Thread />
+    </AssistantRuntimeProvider>
   );
 }
 ```
 
-OpenCore-UI is used only for UI, while all the brains live in the hooks + Cloudflare.
+assistant-ui is used for the chat UI, while all backend logic lives in Cloudflare Workers.
+
+**See `assistant-ui-integration.md` for complete integration guide.**
 
 ---
 
@@ -333,13 +330,13 @@ Realtime connects.
 
 ### **2. User sends a message**
 
-Button → `sendMessage.mutate()` → Worker receives → DO stores → Worker sends to Llama.
+User types in `<Thread />` input → assistant-ui calls runtime → Worker receives → DO stores → Worker sends to Llama.
 
 ### **3. Worker streams LLM tokens**
 
 Worker pushes tokens to Realtime.
-`useChatStream()` updates messages in state.
-OpenCore’s `<ChatMessages />` renders them.
+`useCloudflareRuntime()` streams to assistant-ui.
+assistant-ui's `<Thread />` renders them with auto-scroll.
 
 ### **4. Worker generates structured tasks or a plan**
 

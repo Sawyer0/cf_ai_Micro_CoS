@@ -47,14 +47,16 @@ This is the **heart of the app** — the single source of truth.
 
 * Maintain user or session state:
 
-  * Messages (chat memory)
+  * Messages (chat history with retention policies, see `chat-history-management.md`)
   * Tasks and workflows
   * Planner state
   * Assistant context / history
+  * Event log (append-only for replay)
 * Process incoming events sequentially (prevents race conditions)
 * Reduce events into deterministic state:
 
-  * `user.message` → append to memory → trigger LLM streaming
+  * `user.message` → append to event log → add to `messages[]` → trigger LLM streaming
+  * `assistant.message` → accumulate tokens → finalize message → append to `messages[]`
   * `workflow.daily_plan` → update tasks → emit Realtime updates
 * Ensure idempotency:
 
@@ -68,9 +70,10 @@ This is the **heart of the app** — the single source of truth.
 **Key features to implement:**
 
 * Event log + state reducer
-* Idempotency checks
+* Idempotency checks (via `event_id` tracking)
 * Correlation ID handling (`request_id`, `operation_id`, `event_id`)
-* snapshotting (for fast client sync or reconnects)
+* Message retention and archival (see `chat-history-management.md`)
+* Snapshotting (for fast client sync or reconnects)
 
 ---
 
@@ -107,9 +110,41 @@ Handle all AI reasoning in a **streaming, event-driven fashion**.
 
 ---
 
-# **4. Event flow overview**
+# **4. Tool Client Workers — External MCP integrations**
 
-A typical sequence:
+**Purpose:**
+Call external MCP tools (e.g., flights-MCP) and marshal responses into internal events.
+
+**Responsibilities:**
+
+* Receive tool requests from DO or HTTP Worker:
+
+   * `tool.flights_search`
+   * `tool.hotel_search`
+* Call external MCP via HTTP or RPC:
+
+   * flights-MCP: search flights by origin, destination, dates
+   * Normalize response to internal data model
+* Handle errors and retries:
+
+   * Timeout, rate limit, not found
+   * Emit tool error events back to DO
+* Log tool invocations:
+
+   * `tool_name`, `tool_request_id`, `latency`, `status`
+
+**Key features to implement:**
+
+* HTTP client with retry logic & circuit breaker
+* Request/response normalization
+* Tool invocation metrics
+* Error handling & degradation
+
+---
+
+# **5. Event flow overview**
+
+### **A. User sends a message (LLM reasoning)**
 
 1. **User sends a message** → HTTP Worker
 2. HTTP Worker:
@@ -126,18 +161,56 @@ A typical sequence:
 
    * Streams tokens back to DO
    * DO forwards tokens to clients in real-time
-Workflows can trigger additional events (e.g., daily planner) → DO → Realtime → Clients
+   
+### **B. Calendar event triggers travel workflow (Tool invocation)**
+
+1. **User adds calendar event** → HTTP Worker
+2. HTTP Worker:
+
+   * Creates event (`event_id`, `request_id`, calendar metadata)
+   * Sends to TravelEventDetectorDO
+3. **TravelEventDetectorDO**:
+
+   * Detects travel keywords (destination, date)
+   * Creates TravelEvent with confidence score
+   * If confidence > threshold, emits `travel_event_detected` hook
+4. **TravelWorkflowDO** (triggered by hook):
+
+   * Calls FlightToolClient.searchFlights()
+5. **FlightToolClient Worker**:
+
+   * Calls flights-MCP API
+   * Normalizes results
+   * Returns [FlightOption]
+6. **TravelWorkflowDO** (resumes):
+
+   * Calls LLM Ranking Worker with flights + user preferences
+7. **LLM Ranking Worker**:
+
+   * Scores flights via Llama 3.3
+   * Returns ranked options with reasoning
+8. **TravelWorkflowDO**:
+
+   * Stores results in TravelProfileDO
+   * Emits `suggestions_published` event
+9. **Realtime** pushes to frontend:
+
+   * "Flights found for Paris trip" card appears
+
+Workflows can also trigger additional events (e.g., daily planner) → DO → Realtime → Clients
 
 ---
 
-# **5. Why this is implementation**
+# **6. Why this architecture works**
 
 * Single-threaded DO = deterministic state = no race conditions
 * Event-driven = every action is auditable and replayable
 * Streaming LLM + token events = responsive UI
-* Correlation IDs = full observability
+* Tool Client Workers = extensible, decoupled tool integration
+* Correlation IDs = full observability (spans both LLM calls and tool invocations)
 * Idempotency = no duplicate actions
 * Workers + DOs + Realtime = fully Cloudflare-native
+* Tool invocations are tracked the same way as LLM calls (structured logging, retry, error handling)
 
 ---
 
