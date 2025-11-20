@@ -1,0 +1,9 @@
+# LLM Models
+
+This document tracks the LLMs used by Micro Chief of Staff. Model choice is **config-driven**; this file is descriptive, not authoritative.
+
+For full model behavior and prompt format details, see the official Llama docs: https://www.llama.com/docs/model-cards-and-prompt-formats/llama3_3/
+
+| Model ID                                 | Purpose                  | Default params (app-level)                                         | Notes                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------- | ------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| @cf/meta/llama-3.3-70b-instruct-fp8-fast | Chat / general assistant | temperature 0.4, top_p 0.9, max_tokens ≈1024, stream=true for chat | fp8 "fast" variant hosted on Cloudflare Workers AI. Primary chat model. Verbose/helpful by default: always set `max_tokens` explicitly and give clear output-format instructions. Use shorter `max_tokens` for quick replies or extraction skills, and validate outputs (especially JSON) before trusting them. Consider smaller models for lightweight tools or cost-sensitive paths if needed. |

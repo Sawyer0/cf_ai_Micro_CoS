@@ -1,0 +1,37 @@
+name = "micro-cos-edge-worker"
+main = "src/index.ts"
+compatibility_date = "2025-11-20"
+
+[ai]
+# Workers AI binding, available as env.AI inside the Worker
+binding = "AI"
+
+[[kv_namespaces]]
+binding = "IDEMPOTENCY_KV"
+# TODO: replace these with real IDs created via `wrangler kv namespace create`
+id = "REPLACE_WITH_PRODUCTION_KV_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+# TODO: replace these with real IDs created via `wrangler kv namespace create`
+id = "REPLACE_WITH_PRODUCTION_RATE_LIMIT_ID"
+preview_id = "REPLACE_WITH_PREVIEW_RATE_LIMIT_ID"
+
+[durable_objects]
+bindings = [
+	{ name = "CHAT_SESSIONS", class_name = "ChatSessionDO" },
+]
+
+[[migrations]]
+tag = "v1-chat-sessions"
+new_classes = ["ChatSessionDO"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "micro_cos_db"
+database_id = "REPLACE_WITH_DB_ID"
+
+[vars]
+# Primary Llama model used by Micro CoS at the edge. Override per-environment if needed.
+WORKERS_AI_MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"

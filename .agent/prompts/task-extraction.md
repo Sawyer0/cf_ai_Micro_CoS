@@ -23,14 +23,17 @@ Extract actionable tasks from calendar events, emails, and user messages. Conver
 ## Input Variables
 
 - `calendar_events`: Array of upcoming calendar events
+
   - Type: Array of `{ id: string, start: ISO8601, end: ISO8601, title: string, description: string, attendees: string[] }`
   - Example: `[{ "id": "evt_123", "start": "2025-05-10T14:00:00Z", "title": "Q2 Planning Meeting", "description": "Discuss roadmap priorities" }]`
 
 - `recent_messages`: Recent emails, Slack messages, or user notes
+
   - Type: Array of `{ source: string, timestamp: ISO8601, content: string, sender?: string }`
   - Example: `[{ "source": "email", "timestamp": "2025-05-08T10:30:00Z", "content": "Need flight options to Denver by next week" }]`
 
 - `user_preferences`: Task preferences (categories, priority thresholds, etc.)
+
   - Type: Object
   - Fields: preferred_categories, min_priority_level, include_recurring
   - Example: `{ "preferred_categories": ["work", "travel", "personal"], "min_priority_level": "medium" }`
@@ -98,10 +101,20 @@ Extract actionable tasks from calendar events, emails, and user messages. Conver
 
 ---
 
+## Message Format (Llama chat)
+
+When calling Llama 3.3 via Workers AI, construct the chat messages as:
+
+- `system`: Stable Micro CoS persona and safety/behavior instructions (see system prompt docs).
+- `user`: The rendered prompt template below, with all `{...}` placeholders filled in from the current context.
+- Optional few-shot: Additional `user` / `assistant` turns that show example inputs and ideal JSON outputs (taken from the Examples section) when reliability for a particular pattern needs to be increased.
+
 ## Prompt Template
 
 ```
-You are a task extraction assistant. Analyze calendar events and messages to identify actionable tasks.
+You are the Chief of Staff (Micro CoS) task extraction skill. Analyze the structured context below to identify actionable tasks.
+
+Think through the extraction steps internally, but **do not** include your reasoning or chain-of-thought in the output. Return only the final JSON that matches the requested schema.
 
 ---USER CONTEXT---
 User ID: {user_id}
@@ -128,7 +141,7 @@ Include recurring tasks: {include_recurring}
 2. **Extract from messages:** Keywords like "need to", "can you", "remind me", "schedule", "book", "review"
 3. **Avoid duplicates:** Compare against existing_tasks by title similarity and deadline proximity
 4. **Set deadlines:** For calendar events, extract _subtasks_ due before the event. For messages, use stated deadline or infer from context.
-5. **Prioritize:** 
+5. **Prioritize:**
    - HIGH: Time-sensitive (within 48h), critical for events, blocking other work
    - MEDIUM: Due within 1 week, important but not blocking
    - LOW: Nice-to-have, flexible deadline
@@ -151,30 +164,37 @@ Return a JSON object with:
 - tasks: Array of extracted tasks (may be empty if no clear tasks found)
 - extraction_quality: Object with { events_processed, messages_processed, tasks_extracted, duplicates_found, low_confidence_extractions }
 
-Return ONLY valid JSON, no markdown, no extra text.
+Follow a conservative extraction strategy:
+- Prefer **omitting** a task over guessing when the intent is unclear.
+- Do not invent event IDs, dates, or details that are not supported by the input or the explicit rules above.
+
+Return ONLY valid JSON, no markdown, no commentary, no extra text.
 ```
 
 ---
 
 ## Error Handling
 
-| Scenario | Handling |
-| --- | --- |
-| Invalid calendar event format | Skip event, log warning, continue processing |
-| Message is incomplete/garbled | Skip message, do not extract |
-| Task deadline can't be inferred | Use current_time + 7 days as default |
-| Duplicate task detected | Skip extraction, increment duplicates_found counter |
+| Scenario                              | Handling                                                  |
+| ------------------------------------- | --------------------------------------------------------- |
+| Invalid calendar event format         | Skip event, log warning, continue processing              |
+| Message is incomplete/garbled         | Skip message, do not extract                              |
+| Task deadline can't be inferred       | Use current_time + 7 days as default                      |
+| Duplicate task detected               | Skip extraction, increment duplicates_found counter       |
 | Low-confidence extraction (ambiguous) | Add to low_confidence_extractions array for manual review |
-| LLM returns invalid JSON | Return empty tasks array, log error |
-| Empty inputs (no events/messages) | Return empty tasks array (not an error) |
+| LLM returns invalid JSON              | Return empty tasks array, log error                       |
+| Empty inputs (no events/messages)     | Return empty tasks array (not an error)                   |
 
 ---
 
 ## Examples
 
+These examples are both documentation and candidates for few-shot messages when additional reliability is needed. Keep them short, realistic, and aligned with the JSON schema above.
+
 ### Example 1: Calendar Event with Prep Tasks
 
 **Input:**
+
 ```json
 {
   "calendar_events": [
@@ -186,12 +206,16 @@ Return ONLY valid JSON, no markdown, no extra text.
     }
   ],
   "recent_messages": [],
-  "user_preferences": { "preferred_categories": ["work", "travel"], "min_priority_level": "medium" },
+  "user_preferences": {
+    "preferred_categories": ["work", "travel"],
+    "min_priority_level": "medium"
+  },
   "existing_tasks": []
 }
 ```
 
 **Expected Output:**
+
 ```json
 {
   "tasks": [
@@ -233,6 +257,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 2: Message-Based Task Extraction
 
 **Input:**
+
 ```json
 {
   "calendar_events": [],
@@ -243,12 +268,16 @@ Return ONLY valid JSON, no markdown, no extra text.
       "content": "Hey, can you review the proposal draft by Friday? Also, we need flight options to Denver for the team offsite next week."
     }
   ],
-  "user_preferences": { "preferred_categories": ["work", "travel"], "min_priority_level": "medium" },
+  "user_preferences": {
+    "preferred_categories": ["work", "travel"],
+    "min_priority_level": "medium"
+  },
   "existing_tasks": []
 }
 ```
 
 **Expected Output:**
+
 ```json
 {
   "tasks": [

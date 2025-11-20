@@ -24,19 +24,23 @@ Create a prioritized daily plan by analyzing tasks, calendar events, and user pr
 ## Input Variables
 
 - `tasks`: Array of extracted tasks for today and near-term
+
   - Type: Array of `{ id: string, title: string, deadline: ISO8601, priority: string, estimated_duration_minutes: number, category: string }`
   - Example: 5-15 tasks
 
 - `calendar_events`: Today's and upcoming calendar events
+
   - Type: Array of `{ id: string, start: ISO8601, end: ISO8601, title: string, duration_minutes: number }`
   - Example: 3-8 events
 
 - `user_preferences`: Daily planning preferences
+
   - Type: Object
   - Fields: start_time, end_time, focus_hours, break_frequency_minutes, commute_time_minutes, peak_hours
   - Example: `{ "start_time": "08:00", "end_time": "18:00", "focus_hours": ["09:00-11:00", "14:00-16:00"], "peak_hours": ["09:00-12:00"] }`
 
 - `energy_profile`: User's energy pattern (optional)
+
   - Type: Object
   - Fields: peak_period (morning/afternoon), dips, focus_capacity_minutes
   - Example: `{ "peak_period": "morning", "dips": ["14:00-15:00"], "focus_capacity_minutes": 120 }`
@@ -147,15 +151,35 @@ Create a prioritized daily plan by analyzing tasks, calendar events, and user pr
   ],
   "priorities": {
     "must_do": [
-      { "task_id": "task_001", "title": "Prepare Q2 planning agenda", "deadline": "2025-05-10T14:00:00Z" },
-      { "task_id": "task_003", "title": "Review proposal draft", "deadline": "2025-05-09T17:00:00Z" }
+      {
+        "task_id": "task_001",
+        "title": "Prepare Q2 planning agenda",
+        "deadline": "2025-05-10T14:00:00Z"
+      },
+      {
+        "task_id": "task_003",
+        "title": "Review proposal draft",
+        "deadline": "2025-05-09T17:00:00Z"
+      }
     ],
     "should_do": [
-      { "task_id": "task_004", "title": "Follow up with team", "deadline": "2025-05-10T17:00:00Z" },
-      { "task_id": "task_005", "title": "Update project status", "deadline": "2025-05-11T09:00:00Z" }
+      {
+        "task_id": "task_004",
+        "title": "Follow up with team",
+        "deadline": "2025-05-10T17:00:00Z"
+      },
+      {
+        "task_id": "task_005",
+        "title": "Update project status",
+        "deadline": "2025-05-11T09:00:00Z"
+      }
     ],
     "nice_to_do": [
-      { "task_id": "task_006", "title": "Research new tools", "deadline": "2025-05-15T17:00:00Z" }
+      {
+        "task_id": "task_006",
+        "title": "Research new tools",
+        "deadline": "2025-05-15T17:00:00Z"
+      }
     ]
   },
   "recommendations": [
@@ -201,10 +225,20 @@ Create a prioritized daily plan by analyzing tasks, calendar events, and user pr
 
 ---
 
+## Message Format (Llama chat)
+
+When calling Llama 3.3 via Workers AI, construct the chat messages as:
+
+- `system`: Stable Micro CoS persona and safety/behavior instructions (see system prompt docs).
+- `user`: The rendered prompt template below, with all `{...}` placeholders filled in from the current context.
+- Optional few-shot: Additional `user` / `assistant` turns that show example inputs and ideal JSON outputs (taken from the Examples section) when reliability for a particular pattern needs to be increased.
+
 ## Prompt Template
 
 ```
-You are a daily planner assistant. Create an optimized daily schedule that balances meetings, high-priority tasks, deep work, and breaks.
+You are the Micro Chief of Staff (Micro CoS) daily planning skill. Create an optimized daily schedule that balances meetings, high-priority tasks, deep work, and breaks.
+
+Think through your planning steps internally, but **do not** include your reasoning or chain-of-thought in the output. Return only the final JSON that matches the requested schema.
 
 ---USER CONTEXT---
 Name: {user_name}
@@ -258,22 +292,26 @@ Return JSON with:
 - recommendations: Array of planning suggestions, conflicts, optimizations
 - scheduling_opportunities: Unscheduled tasks with available time slots
 
-Return ONLY valid JSON, no markdown, no extra text.
+Follow a conservative planning strategy:
+- Prefer **leaving slack time** rather than overfilling the day when there is ambiguity about duration or capacity.
+- Do not invent calendar events, tasks, or deadlines that do not appear in the input or derived rules.
+
+Return ONLY valid JSON, no markdown, no commentary, no extra text.
 ```
 
 ---
 
 ## Error Handling
 
-| Scenario | Handling |
-| --- | --- |
-| More tasks than time available | Rank by priority, flag overallocation in recommendations, suggest deferral |
-| Task deadline in past | Mark as overdue in priorities, urgent |
-| Invalid time format in preferences | Use defaults (8am-6pm, 90-min focus blocks) |
-| Overlapping calendar events | Treat as accurate (user's calendar owns conflicts) |
-| Missing energy profile | Assume balanced energy, no specific peak hours |
-| Empty task list | Return calendar-only schedule with available focus blocks |
-| LLM returns invalid JSON | Return empty time_blocks array, log error |
+| Scenario                           | Handling                                                                   |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| More tasks than time available     | Rank by priority, flag overallocation in recommendations, suggest deferral |
+| Task deadline in past              | Mark as overdue in priorities, urgent                                      |
+| Invalid time format in preferences | Use defaults (8am-6pm, 90-min focus blocks)                                |
+| Overlapping calendar events        | Treat as accurate (user's calendar owns conflicts)                         |
+| Missing energy profile             | Assume balanced energy, no specific peak hours                             |
+| Empty task list                    | Return calendar-only schedule with available focus blocks                  |
+| LLM returns invalid JSON           | Return empty time_blocks array, log error                                  |
 
 ---
 
@@ -282,6 +320,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 1: Busy Day with High-Priority Prep
 
 **Input:**
+
 ```json
 {
   "current_timestamp": "2025-05-10T08:00:00Z",
@@ -293,13 +332,43 @@ Return ONLY valid JSON, no markdown, no extra text.
     "peak_hours": ["09:00-12:00"]
   },
   "tasks": [
-    { "id": "t1", "title": "Prepare Q2 planning agenda", "deadline": "2025-05-10T14:00:00Z", "priority": "high", "estimated_duration_minutes": 60 },
-    { "id": "t2", "title": "Review proposal draft", "deadline": "2025-05-09T17:00:00Z", "priority": "high", "estimated_duration_minutes": 45 },
-    { "id": "t3", "title": "Update status report", "deadline": "2025-05-10T17:00:00Z", "priority": "medium", "estimated_duration_minutes": 30 }
+    {
+      "id": "t1",
+      "title": "Prepare Q2 planning agenda",
+      "deadline": "2025-05-10T14:00:00Z",
+      "priority": "high",
+      "estimated_duration_minutes": 60
+    },
+    {
+      "id": "t2",
+      "title": "Review proposal draft",
+      "deadline": "2025-05-09T17:00:00Z",
+      "priority": "high",
+      "estimated_duration_minutes": 45
+    },
+    {
+      "id": "t3",
+      "title": "Update status report",
+      "deadline": "2025-05-10T17:00:00Z",
+      "priority": "medium",
+      "estimated_duration_minutes": 30
+    }
   ],
   "calendar_events": [
-    { "id": "e1", "start": "2025-05-10T09:00:00Z", "end": "2025-05-10T09:30:00Z", "title": "Team standup", "duration_minutes": 30 },
-    { "id": "e2", "start": "2025-05-10T14:00:00Z", "end": "2025-05-10T15:00:00Z", "title": "Q2 Planning Meeting", "duration_minutes": 60 }
+    {
+      "id": "e1",
+      "start": "2025-05-10T09:00:00Z",
+      "end": "2025-05-10T09:30:00Z",
+      "title": "Team standup",
+      "duration_minutes": 30
+    },
+    {
+      "id": "e2",
+      "start": "2025-05-10T14:00:00Z",
+      "end": "2025-05-10T15:00:00Z",
+      "title": "Q2 Planning Meeting",
+      "duration_minutes": 60
+    }
   ]
 }
 ```
@@ -309,6 +378,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 2: Light Day with Focus Time
 
 **Input:**
+
 ```json
 {
   "current_timestamp": "2025-05-12T08:00:00Z",
@@ -320,16 +390,35 @@ Return ONLY valid JSON, no markdown, no extra text.
     "peak_hours": ["09:00-12:00"]
   },
   "tasks": [
-    { "id": "t1", "title": "Research new tools", "deadline": "2025-05-15T17:00:00Z", "priority": "low", "estimated_duration_minutes": 120 },
-    { "id": "t2", "title": "Write blog post", "deadline": "2025-05-16T17:00:00Z", "priority": "medium", "estimated_duration_minutes": 90 }
+    {
+      "id": "t1",
+      "title": "Research new tools",
+      "deadline": "2025-05-15T17:00:00Z",
+      "priority": "low",
+      "estimated_duration_minutes": 120
+    },
+    {
+      "id": "t2",
+      "title": "Write blog post",
+      "deadline": "2025-05-16T17:00:00Z",
+      "priority": "medium",
+      "estimated_duration_minutes": 90
+    }
   ],
   "calendar_events": [
-    { "id": "e1", "start": "2025-05-12T10:00:00Z", "end": "2025-05-12T10:30:00Z", "title": "1-on-1 with manager", "duration_minutes": 30 }
+    {
+      "id": "e1",
+      "start": "2025-05-12T10:00:00Z",
+      "end": "2025-05-12T10:30:00Z",
+      "title": "1-on-1 with manager",
+      "duration_minutes": 30
+    }
   ]
 }
 ```
 
 **Expected Output:**
+
 ```json
 {
   "date": "2025-05-12",
@@ -391,10 +480,18 @@ Return ONLY valid JSON, no markdown, no extra text.
   "priorities": {
     "must_do": [],
     "should_do": [
-      { "task_id": "t2", "title": "Write blog post", "deadline": "2025-05-16T17:00:00Z" }
+      {
+        "task_id": "t2",
+        "title": "Write blog post",
+        "deadline": "2025-05-16T17:00:00Z"
+      }
     ],
     "nice_to_do": [
-      { "task_id": "t1", "title": "Research new tools", "deadline": "2025-05-15T17:00:00Z" }
+      {
+        "task_id": "t1",
+        "title": "Research new tools",
+        "deadline": "2025-05-15T17:00:00Z"
+      }
     ]
   },
   "recommendations": [

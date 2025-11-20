@@ -1,0 +1,43 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+.env
+.env.*
+backend/.env
+backend/.env.*
+
+# Sensitive credential files
+*.keys.json
+gcp-oauth.keys.json
+backend/gcp-oauth.keys.json
+
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+
+# IDE / editor
+.windsurf/
+.idea/
+.devtools/
+
+# Windsurf / devtools logs (keep config, ignore generated logs)
+.devtools/logs/
+
+# Loose markdown files in root (keep README.md)
+/*.md
+!README.md
+
+# Node modules
+node_modules/
+edge-worker/node_modules/
+
+# Build outputs
+dist/
+.wrangler/

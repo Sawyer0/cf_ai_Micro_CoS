@@ -2,7 +2,7 @@
 
 An **AI-powered productivity assistant** for busy professionals, built on Cloudflare Workers and Durable Objects. Automatically detects events, extracts tasks, ranks travel options, and generates daily plans using agentic reasoning patterns.
 
-**Status:** Early-stage development | **Tech Stack:** Python, TypeScript, Cloudflare Workers, Llama 3.3, MCP
+**Status:** Early-stage development | **Tech Stack:** Python (FastAPI), TypeScript (TanStack Start), Cloudflare (Workers, Durable Objects, Realtime, Workers AI), Llama 3.3, MCP
 
 ---
 
@@ -23,26 +23,29 @@ An **AI-powered productivity assistant** for busy professionals, built on Cloudf
 
 ## Overview
 
-**Micro Chief of Staff** transforms passive calendar and email into an **agentic workflow system**. When you add a calendar event or receive an email, the system:
+**Micro Chief of Staff** transforms passive calendar and email into an **agentic workflow system** that you control via chat. When you ask in chat (for example, "Plan my Paris trip based on my calendar" or "Help me prep for the Q2 planning meeting"), the assistant:
 
 1. **Detects intent** – "Paris trip" → travel planning, "Q2 Planning Meeting" → prep tasks
-2. **Invokes tools** – Searches flights via flights-MCP, queries Google Calendar for conflicts
+2. **Invokes tools** – Searches flights via flights-MCP, queries Google Calendar for conflicts (with your permission)
 3. **Reasons with LLM** – Llama 3.3 ranks flights by preferences + calendar context, extracts tasks with deadlines
-4. **Stores & notifies** – Persists results in Durable Objects, pushes updates via Realtime
+4. **Stores & notifies** – Persists results in Durable Objects, streams updates back to the chat UI in real time
 
-**Example workflow:**
+**Example workflow (chat-triggered):**
+
 ```
-User adds "Paris trip May 15–20" to Google Calendar
+User: "I'm going to Paris May 15–20. Find me flights and check for calendar conflicts."
     ↓
-TravelEventDetector identifies travel event (destination: Paris)
+Chat API Worker receives /api/chat request and emits `chat_message_received`
     ↓
-Hook triggered → FlightToolClient searches flights via flights-MCP
+Travel workflow handler detects travel intent and, if needed, reads calendar via google-calendar-mcp
+    ↓
+FlightToolClient searches flights via flights-MCP
     ↓
 LLM ranks flights based on user preferences + calendar context
     ↓
-Top 3 options stored in TravelWorkflowDO
+Top options stored in TravelWorkflowDO and an event like `suggestions_published` is emitted
     ↓
-Realtime notification → Frontend displays trip card with recommendations
+Results are streamed back to the user in the chat UI (TanStack Start + assistant-ui)
 ```
 
 ---
@@ -50,36 +53,42 @@ Realtime notification → Frontend displays trip card with recommendations
 ## Key Features
 
 ### 🌍 Travel Planning
+
 - **Proactive flight search** – Detects travel events in calendar, automatically searches flights
 - **Intelligent ranking** – LLM considers user preferences (airlines, cabin, budget), calendar conflicts (early arrivals for meetings), price vs. convenience tradeoffs
 - **Real pricing** – Integrated with flights-MCP (Duffel API) for live flight options and pricing
 - **Persistent state** – All searches, selections, and booking status stored in Durable Objects
 
 ### 📅 Calendar Intelligence
+
 - **Event parsing** – Reads Google Calendar events, extracts metadata (location, attendees, times)
 - **Travel detection** – Pattern matching + optional LLM classification for travel events
 - **Conflict detection** – Considers existing meetings when ranking flights (avoid early arrivals for 8am calls)
 - **Multi-timezone support** – Handles global scheduling with proper timezone conversions
 
 ### ✅ Task Extraction & Management
+
 - **Automatic prep task generation** – "Q2 Planning Meeting" → "Prepare agenda", "Gather metrics"
 - **Email-driven tasks** – Extract deadlines from emails ("review by Friday")
 - **Priority & deadline inference** – LLM sets priority (high/medium/low) and realistic deadlines
 - **Deduplication** – Avoids creating duplicate tasks from repeated calendar events
 
 ### 📊 Daily Planning
+
 - **Time-blocked schedules** – Generates hour-by-hour plan with meeting slots, focus blocks, breaks
 - **Smart prioritization** – Must-do, should-do, nice-to-do categorization
 - **Energy-aware scheduling** – Places cognitively demanding tasks during peak energy hours
 - **Scheduling gaps** – Identifies available slots for unscheduled tasks with recommendations
 
 ### 📝 Meeting Summarization
+
 - **Automatic recaps** – Summarizes meetings, emails, work sessions with key decisions and action items
 - **Decision tracking** – Extracts and stores decisions with rationale and impact
 - **Risk/blocker identification** – Flags risks, blockers, and dependencies from discussions
 - **Audience-aware tone** – Adjusts summary for self, team, leadership, or client audiences
 
 ### 🔍 Observability
+
 - **Correlation IDs** – Every operation tracked end-to-end with unique `correlation_id` for debugging
 - **Structured logging** – Events logged per step: tool invocation, LLM reasoning, state changes
 - **Performance metrics** – Latency, success rates, error types captured for monitoring
@@ -96,17 +105,17 @@ Realtime notification → Frontend displays trip card with recommendations
 │ Frontend (TanStack Start + assistant-ui)                        │
 │ - Chat interface with streaming (assistant-ui Thread component) │
 │ - Trip suggestion cards + Task list                             │
-│ - Daily planner view                                             │
+│ - Daily planner view                                            │
 │ (UI built with https://github.com/assistant-ui/assistant-ui)    │
-└────────────────────────┬──────────────────────────────────────────┘
+└────────────────────────┬────────────────────────────────────────┘
                          │
           ┌──────────────┴────────────────┐
           │                               │
           ▼                               ▼
 ┌──────────────────────────┐   ┌──────────────────────────┐
-│ Realtime                 │   │ HTTP API Worker          │
-│ - Push notifications     │   │ - REST endpoints         │
-│ - Live updates          │   │ - Authentication         │
+│ Realtime                 │   │ Chat / HTTP API Worker   │
+│ - Push notifications     │   │ - /api/chat (SSE)        │
+│ - Live updates           │   │ - REST endpoints         │
 └──────────────────────────┘   └────────┬─────────────────┘
                                         │
           ┌─────────────────────────────┤
@@ -116,9 +125,9 @@ Realtime notification → Frontend displays trip card with recommendations
 │ Cloudflare Workers                                    │
 │ ┌────────────────────────────────────────────────┐  │
 │ │ Orchestration Layer                            │  │
-│ │ - CalendarSyncWorker (scheduled every 30 min)  │  │
-│ │ - TaskExtractionWorker (hook subscriber)       │  │
-│ │ - TravelWorkflowWorker (event processor)       │  │
+│ │ - Chat-driven workflow handlers                │  │
+│ │ - Task workflows (event processors)           │  │
+│ │ - Travel workflows (event processors)         │  │
 │ └────────────────────────────────────────────────┘  │
 │ ┌────────────────────────────────────────────────┐  │
 │ │ Tool Clients (MCP Wrappers)                    │  │
@@ -153,41 +162,44 @@ Realtime notification → Frontend displays trip card with recommendations
           │      │        │
           ▼      ▼        ▼
       ┌────────────────────────────┐
-      │ External APIs / Tools       │
-      │ - flights-MCP (Duffel)      │
-      │ - Google Calendar API       │
-      │ - (future: Gmail, Maps)     │
+      │ External APIs / Tools      │
+      │ - flights-MCP (Duffel)     │
+      │ - Google Calendar API      │
+      │ - (future: Gmail, Maps)    │
       └────────────────────────────┘
 ```
 
 ### State Management (Durable Objects)
 
 **TravelWorkflowDO:** Manages flight searches, ranking, user selections
+
 - State machine: DETECTED → FLIGHT_SEARCH → RANKING → SUGGESTIONS → USER_ACTED
 - Stores: travel events, flight search requests, results, user preferences
 
 **CalendarEventStoreDO:** Persists synced events and tracks processing
+
 - State: events by date range, last sync time, processed hooks per event
 - Used for deduplication and correlation with tasks/travel events
 
 **TaskManagementDO:** Owns task lifecycle
+
 - State: extracted tasks, status (todo/in-progress/completed), deadlines
 - Triggers: task extraction hooks, daily planner hooks
 
 ### Event Flow & Hooks
 
 ```
-Calendar Sync (30 min interval)
+Chat message received via /api/chat
     ↓
-emit: calendar_synced
+emit: chat_message_received
     ↓
-┌─────────────────────────────────────┐
-│ TravelEventDetector analyzes events │
-└─────────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│ Intent detector analyzes chat + history    │
+└────────────────────────────────────────────┘
     │
-    ├─→ emit: travel_event_detected
+    ├─→ If travel intent: emit travel_event_detected
     │        ↓
-    │   TravelWorkflow.startWorkflow()
+    │   Travel workflow handler
     │        ↓
     │   FlightToolClient.searchFlights()
     │        ↓
@@ -195,25 +207,19 @@ emit: calendar_synced
     │        ↓
     │   store results + emit: suggestions_published
     │        ↓
-    │   Realtime notification → UI
+    │   Results streamed back over /api/chat (SSE)
     │
-    └─→ emit: event_detected
+    └─→ If task/daily planning intent: emit event_detected
              ↓
-        TaskExtractionWorker
+        Task workflow handler
              ↓
-        LLM task extraction
+        LLM task extraction or daily planning
              ↓
         TaskManagementDO.storeTasks()
              ↓
-        emit: tasks_extracted
+        emit: tasks_extracted or daily_plan_generated
              ↓
-        DailyPlannerWorker (on schedule or demand)
-             ↓
-        LLM daily planning
-             ↓
-        emit: daily_plan_generated
-             ↓
-        Realtime notification → UI
+        Updates streamed back over /api/chat (SSE)
 ```
 
 ---
@@ -221,18 +227,22 @@ emit: calendar_synced
 ## Tech Stack
 
 ### Backend
-- **Runtime:** Cloudflare Workers (serverless edge compute)
-- **State & Persistence:** Durable Objects (strongly consistent state machine)
-- **Caching:** Cloudflare KV (global, low-latency key-value store)
-- **Real-time:** Cloudflare Realtime (WebSocket-based push notifications)
+
+- **API Runtime:** Python (FastAPI) – core REST + chat API implementation
+- **Edge & Platform:** Cloudflare Workers – edge routing, Realtime, and integration glue
+- **State & Persistence:** Cloudflare Durable Objects – strongly consistent per-user/domain state
+- **Caching:** Cloudflare KV – global, low-latency key-value store
+- **Real-time:** Cloudflare Realtime – WebSocket-based push notifications / streaming
 - **LLM:** Llama 3.3 70B (via Cloudflare Workers AI)
 
 ### Tool Integrations
+
 - **flights-MCP** – Search real flights via Duffel API (open-source MCP)
 - **google-calendar-mcp** – Read/write Google Calendar events (nspady open-source MCP, 768⭐)
 - **Future:** Gmail MCP, Maps/Geocoding, Timezone utilities
 
 ### Frontend
+
 - **Framework:** TanStack Start (React-based full-stack framework)
 - **UI Components:** assistant-ui (https://github.com/assistant-ui/assistant-ui) – Production-ready React components for AI chat interfaces with streaming, markdown, and tool call support
 - **State Management:** TanStack Query + Zustand
@@ -240,11 +250,22 @@ emit: calendar_synced
 - **Real-time:** Cloudflare Realtime client
 
 ### Development & DevOps
-- **Language:** TypeScript
-- **Package Manager:** npm/yarn
-- **Build:** esbuild (Cloudflare preset)
-- **Testing:** Jest (unit/integration tests)
-- **Deployment:** Wrangler CLI (Cloudflare Workers official tool)
+
+- **Languages:**
+  - TypeScript (TanStack Start frontend + client integrations)
+  - Python (FastAPI backend services)
+- **Package Managers:**
+  - npm/yarn (frontend)
+  - pip/uv/Poetry (backend – choice of Python environment manager)
+- **Build:**
+  - esbuild / Vite (frontend)
+  - Standard Python build & packaging for FastAPI app
+- **Testing:**
+  - Jest / Vitest for frontend
+  - pytest for backend
+- **Deployment:**
+  - Wrangler CLI for Cloudflare Workers (edge, Realtime, Workers AI, Durable Objects)
+  - Standard container or service deployment for FastAPI backend (Cloudflare in front as proxy/edge cache)
 
 ---
 
@@ -261,18 +282,21 @@ emit: calendar_synced
 ### Installation
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/Sawyer0/cf_ai_Micro_CoS.git
    cd cf_ai_Micro_CoS
    ```
 
 2. **Install dependencies:**
+
    ```bash
    npm install
    ```
 
 3. **Set up environment variables:**
    Create `.env.local`:
+
    ```
    DUFFEL_API_KEY=<your_duffel_key>
    GOOGLE_OAUTH_CREDENTIALS=<path_to_gcp-oauth.keys.json>
@@ -281,6 +305,7 @@ emit: calendar_synced
    ```
 
 4. **Set up Google Cloud:**
+
    - Create project at https://console.cloud.google.com
    - Enable Google Calendar API
    - Create OAuth 2.0 credentials (Desktop app type)
@@ -288,6 +313,7 @@ emit: calendar_synced
    - Add your email as test user
 
 5. **Deploy to Cloudflare:**
+
    ```bash
    npm run deploy
    ```
@@ -306,6 +332,8 @@ cf_ai_Micro_CoS/
 ├── .agent/                          # Agent documentation & configuration
 │   ├── architecture/
 │   │   ├── backend/
+│   │   │   ├── api-specification.md # Complete REST API specification
+│   │   │   ├── api-quickref.md    # API quick reference guide
 │   │   │   ├── agentic-design.md   # Pattern: event-driven mini-monolith
 │   │   │   ├── flights-mcp-integration.md
 │   │   │   ├── flights-mcp-response-schema.md
@@ -314,6 +342,10 @@ cf_ai_Micro_CoS/
 │   │   │   ├── workers.md          # Worker architecture overview
 │   │   │   ├── llama3.3.md         # LLM setup & usage
 │   │   │   └── observability.md    # Correlation IDs, logging
+│   │   ├── frontend/
+│   │   │   ├── assistant-ui-integration.md  # assistant-ui setup guide
+│   │   │   ├── assistant-ui-quickstart.md   # Quick reference
+│   │   │   └── frontend-arch-overview.md    # Frontend architecture
 │   │   └── README.md
 │   ├── prompts/
 │   │   ├── README.md               # Prompt execution pattern
@@ -406,34 +438,34 @@ Workers are **stateless orchestrators** that call DOs, tool clients, and LLM, th
 
 ### 2. Hook-Based Reactivity
 
-Rather than polling or hard-coded if/then logic, **hooks emit events** at key points:
+Rather than polling or hard-coded if/then logic, **hooks emit events** at key points inside chat-triggered workflows:
 
 ```typescript
-// When calendar event synced:
-await calendarEventStore.emit({
-  type: 'calendar_synced',
-  events: [...],
-  correlationId: uuid()
+// When a chat message is received at /api/chat:
+await chatWorkflow.emit({
+  type: "chat_message_received",
+  message,
+  correlationId: uuid(),
 });
 
-// Subscriber (TaskExtractionWorker) receives hook:
-env.TravelEventDetector.stub().detectAndEmit(calendarEvents);
+// Subscriber (e.g., task or travel workflow handler) receives hook:
+env.TravelEventDetector.stub().detectAndEmitFromChat(message);
 
 // Which triggers LLM reasoning:
-const tasks = await llm.extractTasks(event);
+const tasks = await llm.extractTasksFromMessage(message);
 await taskMgmt.storeTasks(tasks);
 ```
 
-**Benefit:** Loose coupling, no circular dependencies, easy to add new workflows.
+**Benefit:** Loose coupling, no circular dependencies, easy to add new workflows while keeping the user-facing trigger as chat.
 
 ### 3. Agentic Reasoning Loop
 
-Each workflow follows: **Detect → Tool Call → LLM → Store → Notify**
+Each workflow follows: **Detect → Tool Call → LLM → Store → Notify**, but is initiated from chat:
 
 ```
-User adds "Paris trip" to calendar
+User asks in chat: "Plan my Paris trip May 15–20 based on my calendar."
     ↓
-[Detect] TravelEventDetector identifies travel event
+[Detect] Chat workflow identifies travel intent and relevant context
     ↓
 [Tool] FlightToolClient.searchFlights(origin, dest, dates)
     ↓
@@ -441,9 +473,9 @@ User adds "Paris trip" to calendar
     ↓
 [Store] TravelWorkflowDO.publishSuggestions(rankedFlights)
     ↓
-[Notify] Realtime.publish('trip-suggestions', suggestions)
+[Notify] Results streamed back via /api/chat and rendered in the chat UI
     ↓
-User sees trip card in frontend
+User sees ranked options and can continue the conversation
 ```
 
 **Benefit:** Reduces hallucination (grounded in tool outputs), makes each step observable/debuggable.
@@ -456,17 +488,17 @@ Every request/operation gets a **unique correlation ID**:
 const correlationId = generateUUID();
 
 // Logged at every step:
-logger.info('flight_search_requested', {
+logger.info("flight_search_requested", {
   correlationId,
-  origin: 'SFO',
-  destination: 'CDG',
-  timestamp: now()
+  origin: "SFO",
+  destination: "CDG",
+  timestamp: now(),
 });
 
-logger.info('flight_search_completed', {
+logger.info("flight_search_completed", {
   correlationId,
   resultCount: 10,
-  latency: 450
+  latency: 450,
 });
 
 // Later, query all logs with same correlationId to see full trace
@@ -487,28 +519,28 @@ Every external tool follows this flow:
 class FlightToolClient {
   async searchFlights(request, options) {
     const toolInvocationId = uuid();
-    
+
     // 2. Call external tool
     const response = await callDuffelAPI(request);
-    
+
     // 3. Normalize to internal model
     const normalized = this.normalize(response);
-    
+
     // 4. Log with correlation ID
-    logger.info('tool_invocation_success', {
+    logger.info("tool_invocation_success", {
       correlationId: options.correlationId,
       toolInvocationId,
-      tool: 'flights-mcp',
-      resultCount: normalized.length
+      tool: "flights-mcp",
+      resultCount: normalized.length,
     });
-    
+
     return normalized;
   }
 }
 
 // 2. Caller (Durable Object or Worker) invokes tool
 const flightOptions = await flightToolClient.searchFlights(
-  { origin: 'SFO', destination: 'CDG', departure_date: '2025-05-10' },
+  { origin: "SFO", destination: "CDG", departure_date: "2025-05-10" },
   { correlationId }
 );
 
@@ -516,7 +548,7 @@ const flightOptions = await flightToolClient.searchFlights(
 await travelWorkflow.storeFlightResults(flightOptions);
 
 // 4. Emit hook for downstream
-await travelWorkflow.emit('flight_search_completed', { flightOptions });
+await travelWorkflow.emit("flight_search_completed", { flightOptions });
 ```
 
 ### Prompt Execution Pattern
@@ -538,22 +570,22 @@ class FlightRankingPrompt {
     Rank these flights 1-3...
     Return JSON: { "ranked_flights": [...] }
   `;
-  
+
   async execute(inputs) {
     const prompt = this.template
-      .replace('{user_preferences}', JSON.stringify(inputs.preferences))
-      .replace('{flights_json}', JSON.stringify(inputs.flights))
-      .replace('{calendar_context}', inputs.calendarContext);
-    
+      .replace("{user_preferences}", JSON.stringify(inputs.preferences))
+      .replace("{flights_json}", JSON.stringify(inputs.flights))
+      .replace("{calendar_context}", inputs.calendarContext);
+
     const response = await llm.generate(prompt);
-    
+
     // Validate JSON output
     const parsed = JSON.parse(response);
     if (!this.isValidRanking(parsed)) {
       // Fallback: sort by price
       return inputs.flights.sort((a, b) => a.price - b.price);
     }
-    
+
     return parsed.ranked_flights;
   }
 }
@@ -571,15 +603,15 @@ function normalizeFlightOffer(offer) {
     airline: offer.owner.iata_code,
     departure: {
       datetime: offer.slices[0].segments[0].departing_at,
-      airport: offer.slices[0].origin.iata_code
+      airport: offer.slices[0].origin.iata_code,
     },
     arrival: {
       datetime: offer.slices[0].segments[-1].arriving_at,
-      airport: offer.slices[0].destination.iata_code
+      airport: offer.slices[0].destination.iata_code,
     },
     stops: offer.slices[0].segments.length - 1,
     price: parseFloat(offer.total_amount),
-    currency: offer.total_currency
+    currency: offer.total_currency,
     // ... other fields
   };
 }
@@ -593,10 +625,10 @@ function normalizeGoogleCalendarEvent(googleEvent) {
     start: new Date(googleEvent.start.dateTime || googleEvent.start.date),
     end: new Date(googleEvent.end.dateTime || googleEvent.end.date),
     location: googleEvent.location,
-    attendees: googleEvent.attendees?.map(a => ({
+    attendees: googleEvent.attendees?.map((a) => ({
       email: a.email,
-      status: a.responseStatus
-    }))
+      status: a.responseStatus,
+    })),
     // ...
   };
 }
@@ -657,12 +689,14 @@ wrangler tail
 ### Debugging
 
 1. **Local breakpoints:**
+
    ```bash
    npm run dev:debug
    # Open chrome://inspect
    ```
 
 2. **Realtime logs:**
+
    ```bash
    wrangler tail --service api --format pretty
    ```
@@ -670,8 +704,8 @@ wrangler tail
 3. **Correlation ID lookup:**
    ```typescript
    // Query all logs with specific correlationId
-   const logs = await logging.query({ correlationId: 'abc-123' });
-   logs.forEach(log => console.log(log));
+   const logs = await logging.query({ correlationId: "abc-123" });
+   logs.forEach((log) => console.log(log));
    ```
 
 ---
@@ -723,6 +757,7 @@ test: add test cases for freebusy merging logic
 ## Roadmap
 
 ### Phase 1: Core (Current)
+
 - [x] Calendar sync & event parsing
 - [x] Travel event detection
 - [x] Flight search & ranking
@@ -731,6 +766,7 @@ test: add test cases for freebusy merging logic
 - [x] Observability framework
 
 ### Phase 2: Expansion (Q2 2025)
+
 - [ ] Email (Gmail MCP) integration
 - [ ] Meeting summarization with decision tracking
 - [ ] Slack context integration
@@ -738,12 +774,14 @@ test: add test cases for freebusy merging logic
 - [ ] Multi-user support (team calendars, shared tasks)
 
 ### Phase 3: Intelligence (Q3 2025)
+
 - [ ] Learn user preferences from past decisions
 - [ ] Predict optimal meeting times
 - [ ] Suggest task decomposition with subtasks
 - [ ] Context-aware reminders based on location/time
 
 ### Phase 4: Extensibility (Q4 2025)
+
 - [ ] Plugin system for custom tools
 - [ ] Workflow builder UI
 - [ ] Integration marketplace

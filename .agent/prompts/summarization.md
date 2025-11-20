@@ -24,14 +24,17 @@ Generate concise summaries of meetings, emails, threads, and work sessions. Extr
 ## Input Variables
 
 - `content`: Source material to summarize
+
   - Type: Object with `source_type` (meeting, email, thread, work_session), `text`, `timestamp`, `participants` (optional)
   - Example: `{ "source_type": "meeting", "text": "transcript here...", "timestamp": "2025-05-10T14:00:00Z", "participants": ["Alice", "Bob"] }`
 
 - `context_type`: What kind of summary is needed
+
   - Type: String enum (quick, detailed, actionable, strategic)
   - Examples: "quick" (2-3 bullet points), "detailed" (structured with sections), "actionable" (focus on tasks)
 
 - `audience`: Who will read this
+
   - Type: String (self, team, leadership, client)
   - Affects tone and detail level
 
@@ -158,17 +161,27 @@ Generate concise summaries of meetings, emails, threads, and work sessions. Extr
   "summary_quality": {
     "completeness": 0.92,
     "actionability": 0.88,
-    "clarity": 0.90
+    "clarity": 0.9
   }
 }
 ```
 
 ---
 
+## Message Format (Llama chat)
+
+When calling Llama 3.3 via Workers AI, construct the chat messages as:
+
+- `system`: Stable Micro CoS persona and safety/behavior instructions (see system prompt docs).
+- `user`: The rendered prompt template below, with all `{...}` placeholders filled in from the current context.
+- Optional few-shot: Additional `user` / `assistant` turns that show example inputs and ideal JSON outputs (taken from the Examples section) when reliability for a particular pattern needs to be increased.
+
 ## Prompt Template
 
 ```
-You are a meeting summarization specialist. Create a clear, actionable summary of the provided content.
+You are the Chief of Staff (Micro CoS) summarization skill. Create a clear, actionable summary of the provided content.
+
+Think through your analysis internally, but **do not** include your reasoning or chain-of-thought in the output. Return only the final JSON that matches the requested schema.
 
 ---CONTEXT---
 Summary type: {context_type} (quick, detailed, actionable, strategic)
@@ -209,22 +222,26 @@ Return JSON with:
 For "quick" summaries, return simplified structure:
 - overview, key_points (max 3), action_items (max 3), next_steps
 
-Return ONLY valid JSON, no markdown, no extra text.
+Follow a conservative summarization strategy:
+- Prefer **omitting** speculative details or decisions that are not clearly supported by the source content.
+- Do not invent participants, dates, or commitments that do not appear in the input.
+
+Return ONLY valid JSON, no markdown, no commentary, no extra text.
 ```
 
 ---
 
 ## Error Handling
 
-| Scenario | Handling |
-| --- | --- |
-| Content is too short/unclear | Return overview only, flag summary_quality.completeness < 0.5 |
+| Scenario                         | Handling                                                       |
+| -------------------------------- | -------------------------------------------------------------- |
+| Content is too short/unclear     | Return overview only, flag summary_quality.completeness < 0.5  |
 | No clear action items identified | Return empty action_items array (not all summaries have tasks) |
-| Participant list incomplete | Use available names, note in summary_quality |
-| Conflicting decisions mentioned | Extract both, note contradiction in key_points |
-| LLM returns invalid JSON | Return overview text only, log error |
-| Missing timestamp | Use current_timestamp as fallback |
-| Ambiguous task ownership | Flag as "TBD" and note in action_items |
+| Participant list incomplete      | Use available names, note in summary_quality                   |
+| Conflicting decisions mentioned  | Extract both, note contradiction in key_points                 |
+| LLM returns invalid JSON         | Return overview text only, log error                           |
+| Missing timestamp                | Use current_timestamp as fallback                              |
+| Ambiguous task ownership         | Flag as "TBD" and note in action_items                         |
 
 ---
 
@@ -233,6 +250,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 1: Meeting Summary (Detailed)
 
 **Input:**
+
 ```json
 {
   "source_type": "meeting",
@@ -249,6 +267,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 2: Email Thread Summary (Quick)
 
 **Input:**
+
 ```json
 {
   "source_type": "email",
@@ -261,6 +280,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ```
 
 **Expected Output:**
+
 ```json
 {
   "summary": {
@@ -310,6 +330,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 3: Work Session Summary (Actionable)
 
 **Input:**
+
 ```json
 {
   "source_type": "work_session",
@@ -322,6 +343,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ```
 
 **Expected Output:**
+
 ```json
 {
   "summary": {
@@ -348,7 +370,9 @@ Return ONLY valid JSON, no markdown, no extra text.
     },
     {
       "category": "learnings",
-      "points": ["Durable Objects pattern for single source of truth state management"]
+      "points": [
+        "Durable Objects pattern for single source of truth state management"
+      ]
     }
   ],
   "action_items": [
@@ -381,7 +405,7 @@ Return ONLY valid JSON, no markdown, no extra text.
   ],
   "tags": ["prompts", "agentic-design", "development"],
   "summary_quality": {
-    "completeness": 0.90,
+    "completeness": 0.9,
     "actionability": 0.92,
     "clarity": 0.93
   }

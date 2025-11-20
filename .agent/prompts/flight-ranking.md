@@ -23,16 +23,19 @@ Rank flight options based on user preferences, calendar context, and travel cons
 ## Input Variables
 
 - `flights`: Array of FlightOption objects (from flights-mcp normalization)
+
   - Type: `FlightOption[]`
   - Fields: id, airline, departure, arrival, duration_minutes, stops, price, baggage, emissions_kg
   - Example: 12-50 flights
 
 - `user_preferences`: User's travel preferences
+
   - Type: `UserTravelProfile.preferences`
   - Fields: preferred_airlines, cabin_class, max_price, non_stop_only, max_layover_minutes
   - Example: `{ "preferred_airlines": ["BA", "AF"], "cabin_class": "business", "max_price": 1500, "non_stop_only": false, "max_layover_minutes": 180 }`
 
 - `calendar_context`: Upcoming calendar events on travel dates
+
   - Type: Array of `{ start: ISO8601, title: string }`
   - Example: `[{ "start": "2025-05-10T08:00:00Z", "title": "Client meeting in Paris" }]`
 
@@ -84,10 +87,20 @@ Rank flight options based on user preferences, calendar context, and travel cons
 
 ---
 
+## Message Format (Llama chat)
+
+When calling Llama 3.3 via Workers AI, construct the chat messages as:
+
+- `system`: Stable Micro CoS persona and safety/behavior instructions (see system prompt docs).
+- `user`: The rendered prompt template below, with all `{...}` placeholders filled in from the current context.
+- Optional few-shot: Additional `user` / `assistant` turns that show example inputs and ideal JSON outputs (taken from the Examples section) when reliability for a particular pattern needs to be increased.
+
 ## Prompt Template
 
 ```
-You are a travel advisor assistant. A user has an upcoming trip and you must rank flight options.
+You are the Chief of Staff (Micro CoS) travel planning skill. A user has an upcoming trip and you must rank flight options.
+
+Think through tradeoffs and constraints internally, but **do not** include your reasoning or chain-of-thought in the output. Return only the final JSON that matches the requested schema.
 
 ---USER CONTEXT---
 Name: {user_name}
@@ -151,20 +164,24 @@ Return a JSON array with top 3 flights, ranked by suitability. Each entry must h
 - price: total price from input
 - stops: number of stops from input
 
-Return ONLY valid JSON, no markdown, no extra text.
+Follow a conservative ranking strategy:
+- Prefer **down-ranking** flights when their suitability is unclear rather than guessing.
+- Do not invent flight IDs, prices, dates, or attributes that are not present in the input.
+
+Return ONLY valid JSON, no markdown, no commentary, no extra text.
 ```
 
 ---
 
 ## Error Handling
 
-| Scenario | Handling |
-| --- | --- |
-| LLM returns invalid JSON | Parse error → return original flights sorted by price + log error |
-| LLM returns fewer than 3 flights | Pad with lower-ranked flights to always return 3 |
-| LLM assigns same score to multiple flights | Use price as tiebreaker (lower price = higher rank) |
-| Score out of range (e.g., 1.5) | Clamp to [0.0, 1.0] → log as warning |
-| Missing fields in response | Use defaults: score = 0.5, reasoning = empty string |
+| Scenario                                   | Handling                                                          |
+| ------------------------------------------ | ----------------------------------------------------------------- |
+| LLM returns invalid JSON                   | Parse error → return original flights sorted by price + log error |
+| LLM returns fewer than 3 flights           | Pad with lower-ranked flights to always return 3                  |
+| LLM assigns same score to multiple flights | Use price as tiebreaker (lower price = higher rank)               |
+| Score out of range (e.g., 1.5)             | Clamp to [0.0, 1.0] → log as warning                              |
+| Missing fields in response                 | Use defaults: score = 0.5, reasoning = empty string               |
 
 ---
 
@@ -173,6 +190,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 1: Business Trip (Early Arrival Preferred)
 
 **Input:**
+
 ```json
 {
   "trip_metadata": {
@@ -226,6 +244,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ```
 
 **Expected Output:**
+
 ```json
 {
   "ranked_flights": [
@@ -235,7 +254,12 @@ Return ONLY valid JSON, no markdown, no extra text.
       "airline": "BA",
       "score": 0.95,
       "reasoning": "Non-stop BA flight arriving 08:00 (1 hour before 09:00 meeting). Business class, preferred airline. Perfect timing.",
-      "key_factors": ["non-stop", "early-arrival", "preferred-airline", "business-class"],
+      "key_factors": [
+        "non-stop",
+        "early-arrival",
+        "preferred-airline",
+        "business-class"
+      ],
       "price": 920,
       "stops": 0
     },
@@ -253,7 +277,7 @@ Return ONLY valid JSON, no markdown, no extra text.
       "rank": 3,
       "flight_id": "off_002",
       "airline": "LH",
-      "score": 0.50,
+      "score": 0.5,
       "reasoning": "Arrives day before at 19:00. Economy class. Cheaper but not ideal for time-sensitive meeting.",
       "key_factors": ["budget-option", "early-arrival-day-before"],
       "price": 680,
@@ -266,6 +290,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ### Example 2: Leisure Trip (Budget Priority)
 
 **Input:**
+
 ```json
 {
   "trip_metadata": {
@@ -308,6 +333,7 @@ Return ONLY valid JSON, no markdown, no extra text.
 ```
 
 **Expected Output:**
+
 ```json
 {
   "ranked_flights": [

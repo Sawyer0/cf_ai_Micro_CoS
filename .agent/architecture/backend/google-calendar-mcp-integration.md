@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Google Calendar MCP integration enables the Micro Chief of Staff to **detect travel events, extract task context, and build calendar-aware reasoning** into all downstream workflows. When users add calendar events, the system detects patterns (travel, meetings, deadlines), extracts metadata, and triggers task extraction, daily planning, and flight searches.
+The Google Calendar MCP integration enables the Micro Chief of Staff to **detect travel events, extract task context, and build calendar-aware reasoning** into all downstream workflows. When the assistant (typically in response to a **chat request**) reads calendar events, it can detect patterns (travel, meetings, deadlines), extract metadata, and trigger task extraction, daily planning, and flight searches.
 
 ## Integration Goals
 
@@ -17,18 +17,18 @@ The Google Calendar MCP integration enables the Micro Chief of Staff to **detect
 
 ## Architecture
 
-### High-Level Flow
+### High-Level Flow (Chat-Only MVP)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ 1. User Adds Calendar Event                                      │
-│    "Paris trip, May 10–15" or "Q2 Planning Meeting, May 10"     │
-│    Event stored in Google Calendar                               │
+│ 1. User Asks Chat for Help                                      │
+│    "What's on my calendar next week?" or "Plan my trip"        │
+│    Chat handler calls CalendarToolClient                        │
 └───────────────────┬──────────────────────────────────────────────┘
                     │
                     ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 2. Calendar Event Sync (Polling or Webhook)                      │
+│ 2. Calendar Event Read (On-Demand)                              │
 │    - Fetch events from Google Calendar MCP                       │
 │    - Filter: last 30 days, next 90 days                         │
 │    - Extract: title, description, dates, location, attendees   │
@@ -78,18 +78,37 @@ The Google Calendar MCP integration enables the Micro Chief of Staff to **detect
 
 ---
 
+## Baseline: Warm Calendar Sync + Chat-Triggered Workflows
+
+### Background sync (baseline)
+
+- A scheduled `CalendarSyncWorker` (cron or webhook) keeps `CalendarEventStoreDO` **warm** by syncing events from Google Calendar MCP.
+- Optionally precomputes `TravelEvent`s and other metadata so chat workflows have rich context.
+- **Does not** call flights-MCP, daily planner prompts, or send user-visible messages by itself.
+
+### Chat-triggered workflows (user-facing)
+
+- Chat handlers call `CalendarToolClient` and/or read from `CalendarEventStoreDO` when the user asks for calendar-aware help.
+- Travel, task extraction, and daily-planner workflows run **in response to a chat request** (or explicit API call), even though they may reuse warm calendar state.
+- This preserves a **chat-first, on-demand UX** while still benefiting from background sync.
+
+---
+
 ## Component Architecture
 
 ### 1. **Calendar Event Sync (Worker + Scheduled Job)**
 
-**Responsibility:** Periodically fetch calendar events and emit hooks for downstream processing.
+**Responsibility:** Periodically fetch calendar events and emit hooks for downstream processing, keeping calendar data warm for chat-triggered workflows. This worker is responsible for **syncing raw events** into `CalendarEventStoreDO` and, when enabled, \*\*helping drive detection and storage of `TravelEvent`s` via downstream hooks.
+
+Chat workflows can still call `CalendarToolClient` **on-demand** (e.g., when the user asks "What's on my calendar next week?" or "Plan my trip based on my calendar"), but they will typically read from the already-synced `CalendarEventStoreDO`.
 
 **Interface:**
+
 ```typescript
 interface CalendarEvent {
   id: string;
-  summary: string;           // Event title
-  description?: string;      // Rich text or plain text
+  summary: string; // Event title
+  description?: string; // Rich text or plain text
   start: {
     dateTime: ISO8601;
     timeZone?: string;
@@ -98,33 +117,37 @@ interface CalendarEvent {
     dateTime: ISO8601;
     timeZone?: string;
   };
-  location?: string;         // e.g., "Paris, France"
+  location?: string; // e.g., "Paris, France"
   attendees?: {
     email: string;
     displayName?: string;
-    responseStatus: 'accepted' | 'declined' | 'tentative' | 'needsAction';
+    responseStatus: "accepted" | "declined" | "tentative" | "needsAction";
   }[];
   organizer?: {
     email: string;
     displayName?: string;
   };
   recurringEventId?: string;
-  recurrence?: string[];     // RRULE format
-  status: 'confirmed' | 'tentative' | 'cancelled';
-  transparency: 'opaque' | 'transparent';
-  visibility: 'public' | 'private' | 'confidential';
+  recurrence?: string[]; // RRULE format
+  status: "confirmed" | "tentative" | "cancelled";
+  transparency: "opaque" | "transparent";
+  visibility: "public" | "private" | "confidential";
 }
 
 interface CalendarSyncWorker {
   // Scheduled: run every 30 min (or on webhook)
   syncCalendarEvents(userId: string): Promise<void>;
-  
+
   // Emit hooks for each event type
-  emitEventHook(event: CalendarEvent, hookType: 'travel_detected' | 'event_detected'): Promise<void>;
+  emitEventHook(
+    event: CalendarEvent,
+    hookType: "travel_detected" | "event_detected"
+  ): Promise<void>;
 }
 ```
 
-**Implementation Notes:**
+**Implementation Notes (background-sync mode):**
+
 - Trigger: Scheduled cron (e.g., every 30 min) or Google Calendar webhook.
 - Fetch events: Call Google Calendar MCP `list-events` tool for date range.
 - Deduplicate: Compare event IDs against `CalendarEventStoreDO` to avoid re-processing.
@@ -137,6 +160,7 @@ interface CalendarSyncWorker {
 **Responsibility:** Wrap Google Calendar MCP calls, handle retries, normalize responses.
 
 **Interface:**
+
 ```typescript
 interface CalendarToolClient {
   // List events in date range
@@ -144,20 +168,20 @@ interface CalendarToolClient {
     dateRange: { start: ISO8601; end: ISO8601 },
     filters?: { summary_contains?: string; location_contains?: string }
   ): Promise<CalendarEvent[]>;
-  
+
   // Search events by text
   searchEvents(
     query: string,
     dateRange?: { start: ISO8601; end: ISO8601 }
   ): Promise<CalendarEvent[]>;
-  
+
   // Check availability (free/busy)
   getFreeBusy(
     calendarIds: string[],
     timeMin: ISO8601,
     timeMax: ISO8601
   ): Promise<FreeBusyData>;
-  
+
   // Create event (for task/reminder creation)
   createEvent(
     summary: string,
@@ -180,6 +204,7 @@ interface FreeBusyData {
 ```
 
 **Implementation:**
+
 - Call Google Calendar MCP server via stdio (local) or HTTP (remote).
 - Handle OAuth token refresh (cached in Durable Object or Cloudflare KV).
 - Log: request_id, timestamp, latency, result count, error status.
@@ -192,6 +217,7 @@ interface FreeBusyData {
 **Responsibility:** Identify travel-related calendar events, extract metadata, emit hooks.
 
 **Interface:**
+
 ```typescript
 interface TravelEvent {
   calendar_event_id: string;
@@ -200,25 +226,28 @@ interface TravelEvent {
   description?: string;
   start_date: ISO8601;
   end_date: ISO8601;
-  origin_city?: string;        // User's home city (from profile)
-  destination_city: string;    // Extracted from title/location
-  travel_date?: ISO8601;       // Departure date (if explicit)
-  return_date?: ISO8601;       // Return date (if round-trip)
-  detection_method: 'pattern_match' | 'llm_classification';
-  confidence: number;          // 0.0–1.0
+  origin_city?: string; // User's home city (from profile)
+  destination_city: string; // Extracted from title/location
+  travel_date?: ISO8601; // Departure date (if explicit)
+  return_date?: ISO8601; // Return date (if round-trip)
+  detection_method: "pattern_match" | "llm_classification";
+  confidence: number; // 0.0–1.0
   extracted_at: ISO8601;
 }
 
 interface TravelEventDetectorDO {
   // Detect travel events from calendar
   detectTravelEvents(calendarEvents: CalendarEvent[]): Promise<TravelEvent[]>;
-  
+
   // Store detected event
   storeTravelEvent(event: TravelEvent): Promise<void>;
-  
+
   // Get detected events
-  getTravelEvents(dateRange?: { start: ISO8601; end: ISO8601 }): Promise<TravelEvent[]>;
-  
+  getTravelEvents(dateRange?: {
+    start: ISO8601;
+    end: ISO8601;
+  }): Promise<TravelEvent[]>;
+
   // Check if already processed
   isEventProcessed(calendar_event_id: string): Promise<boolean>;
 }
@@ -227,22 +256,26 @@ interface TravelEventDetectorDO {
 **Logic:**
 
 1. **Pattern Matching:**
+
    - Keywords in title: "trip", "flight", "travel", "visit", destination names
    - Location field: non-empty and appears to be a city/country
    - Description mentions: "depart", "arrive", "hotel", "flight"
 
 2. **Destination Extraction:**
+
    - Parse location field (e.g., "Paris, France" → "Paris")
    - Extract from title (e.g., "Paris trip" → "Paris")
    - Geocode or fuzzy-match against known city names
 
 3. **Confidence Scoring:**
+
    - High (0.9+): Explicit "trip to X" + location field
    - Medium (0.7–0.9): Destination mentioned in title but no location
    - Low (0.4–0.7): Meeting in another city + travel indicators
    - Very Low (< 0.4): Ambiguous; needs LLM classification
 
 4. **LLM Classification (Optional):**
+
    - For confidence < 0.7, pass to Llama 3.3 with prompt:
      ```
      Is this a travel event? Title: "{title}", Description: "{description}"
@@ -260,17 +293,21 @@ interface TravelEventDetectorDO {
 **Responsibility:** Persist calendar events and track processing state.
 
 **Interface:**
+
 ```typescript
 interface CalendarEventStoreDO {
   // Store synced events
   storeEvents(events: CalendarEvent[], lastSyncTime: ISO8601): Promise<void>;
-  
+
   // Get events
-  getEvents(dateRange: { start: ISO8601; end: ISO8601 }): Promise<CalendarEvent[]>;
-  
+  getEvents(dateRange: {
+    start: ISO8601;
+    end: ISO8601;
+  }): Promise<CalendarEvent[]>;
+
   // Get sync state (for idempotency)
   getLastSyncTime(): Promise<ISO8601 | null>;
-  
+
   // Track processing (avoid re-processing)
   markEventProcessed(event_id: string, hook_type: string): Promise<void>;
   isEventProcessed(event_id: string, hook_type: string): Promise<boolean>;
@@ -278,6 +315,7 @@ interface CalendarEventStoreDO {
 ```
 
 **Data Model:**
+
 ```typescript
 interface CalendarEventRecord {
   event_id: string;
@@ -285,9 +323,9 @@ interface CalendarEventRecord {
   calendar_event: CalendarEvent;
   synced_at: ISO8601;
   processed_hooks: {
-    hook_type: string;   // e.g., "travel_detected", "task_extracted"
+    hook_type: string; // e.g., "travel_detected", "task_extracted"
     processed_at: ISO8601;
-    status: 'success' | 'failed';
+    status: "success" | "failed";
   }[];
 }
 ```
@@ -301,6 +339,7 @@ interface CalendarEventRecord {
 **Triggered by:** `event_detected` hook from `CalendarSyncWorker`.
 
 **Workflow:**
+
 ```
 CalendarSyncWorker emits event_detected hook
     │
@@ -321,6 +360,7 @@ Emit hook: tasks_extracted
 ```
 
 **Example:**
+
 - Calendar: "Q2 Planning Meeting, May 10, 14:00–15:00"
 - Extracted Tasks:
   - "Prepare Q2 planning agenda" (deadline May 10, 13:00, high priority)
@@ -333,11 +373,13 @@ Emit hook: tasks_extracted
 **Responsibility:** Inject calendar context into LLM prompts.
 
 **Used by:**
+
 - **Flight Ranking Prompt:** Calendar events on departure/arrival dates influence ranking
 - **Daily Planner Prompt:** Calendar events define time blocks and constraints
 - **Summarization Prompt:** Meeting notes reference calendar event context
 
 **Calendar Context Block:**
+
 ```typescript
 interface CalendarContext {
   events_today: CalendarEvent[];
@@ -346,20 +388,24 @@ interface CalendarContext {
   earliest_meeting: ISO8601 | null;
   latest_meeting: ISO8601 | null;
   total_meeting_minutes: number;
-  free_blocks: Array<{ start: ISO8601; end: ISO8601; duration_minutes: number }>;
+  free_blocks: Array<{
+    start: ISO8601;
+    end: ISO8601;
+    duration_minutes: number;
+  }>;
 }
 ```
 
 **Example in Flight Ranking Prompt:**
+
 ```
 ---CALENDAR CONTEXT---
-Events on departure (May 10):
-- 09:00–09:30: Team standup
-- 14:00–15:00: Q2 Planning Meeting
+You arrive on May 10. Important events:
+- 14:00–15:00: Q2 Planning Meeting (in Paris)
 
-Constraint: Must arrive before 14:00 planning meeting (prefer 13:00 or earlier)
+Preferred arrival time: Before 13:00 (1 hour buffer for meeting)
 
-Free time today: 08:00–09:00, 09:30–14:00 (for final prep), 15:00–18:00
+Consider: Does the flight allow time to arrive before the meeting?
 ```
 
 ---
@@ -472,11 +518,13 @@ Realtime notification to frontend
 ### 1. Flight Ranking (with Calendar Context)
 
 **Input:**
+
 - Flight options (from flights-MCP)
 - User preferences (from profile)
 - **Calendar context:** Events on departure/arrival dates
 
 **Prompt Addition:**
+
 ```
 ---CALENDAR CONTEXT (Arrival Day)---
 You arrive on May 10. Important events:
@@ -490,12 +538,14 @@ Consider: Does the flight allow time to arrive before the meeting?
 ### 2. Daily Planner (with Calendar Events)
 
 **Input:**
+
 - Extracted tasks for today
 - **Calendar events** (from calendar sync)
 - User preferences (work hours, focus blocks)
 - Energy profile
 
 **Prompt Addition:**
+
 ```
 ---TODAY'S CALENDAR---
 - 09:00–09:30: Team standup (30 min, medium focus)
@@ -508,11 +558,13 @@ Schedule tasks around these meetings.
 ### 3. Task Extraction (with Calendar Event Details)
 
 **Input:**
+
 - Calendar event (title, description, attendees, location)
 - Recent messages (emails/Slack)
 - Existing tasks (to avoid duplicates)
 
 **Prompt Addition:**
+
 ```
 ---CALENDAR EVENT---
 Title: Q2 Planning Meeting
@@ -529,30 +581,30 @@ Extract prep tasks needed before this meeting.
 
 ### Google Calendar API Failures
 
-| Scenario | Handling |
-|----------|----------|
-| OAuth token expired | Refresh token; retry request; log token refresh event |
-| Rate limit (429) | Queue request with exponential backoff; retry after 60s |
-| Calendar API timeout | Retry up to 3 times; if persistent, use cached events; emit warning |
-| Event not found (404) | Skip event; mark as deleted in store |
-| Auth error (401/403) | Log auth failure; alert user; disable calendar sync until resolved |
+| Scenario              | Handling                                                            |
+| --------------------- | ------------------------------------------------------------------- |
+| OAuth token expired   | Refresh token; retry request; log token refresh event               |
+| Rate limit (429)      | Queue request with exponential backoff; retry after 60s             |
+| Calendar API timeout  | Retry up to 3 times; if persistent, use cached events; emit warning |
+| Event not found (404) | Skip event; mark as deleted in store                                |
+| Auth error (401/403)  | Log auth failure; alert user; disable calendar sync until resolved  |
 
 ### Travel Detection Failures
 
-| Scenario | Handling |
-|----------|----------|
-| Destination ambiguous | Low confidence score; don't trigger flight search; mark for manual review |
-| LLM classification fails | Treat as non-travel event; extract as regular task |
-| Invalid date range | Use event duration (start–end) as travel period; infer departure date |
-| No origin city (user home) | Use default or prompt user to set home city in profile |
+| Scenario                   | Handling                                                                  |
+| -------------------------- | ------------------------------------------------------------------------- |
+| Destination ambiguous      | Low confidence score; don't trigger flight search; mark for manual review |
+| LLM classification fails   | Treat as non-travel event; extract as regular task                        |
+| Invalid date range         | Use event duration (start–end) as travel period; infer departure date     |
+| No origin city (user home) | Use default or prompt user to set home city in profile                    |
 
 ### Task Extraction Failures
 
-| Scenario | Handling |
-|----------|----------|
-| LLM returns invalid JSON | Log error; emit no tasks; calendar event treated as informational |
-| Low-confidence extraction | Add to review queue for manual curation |
-| Duplicate task detected | Skip extraction; increment duplicate counter |
+| Scenario                           | Handling                                                             |
+| ---------------------------------- | -------------------------------------------------------------------- |
+| LLM returns invalid JSON           | Log error; emit no tasks; calendar event treated as informational    |
+| Low-confidence extraction          | Add to review queue for manual curation                              |
+| Duplicate task detected            | Skip extraction; increment duplicate counter                         |
 | Missing fields (deadline/priority) | Use sensible defaults (deadline = event end date, priority = medium) |
 
 ### State Consistency
@@ -567,27 +619,31 @@ Extract prep tasks needed before this meeting.
 ## Observability & Correlation
 
 **Logged Events:**
+
 ```typescript
 interface CalendarToolInvocationEvent {
-  correlation_id: string;           // UUID, propagated across all steps
-  event_type: 'calendar_sync_started' | 'calendar_sync_completed' | 
-              'travel_event_detected' | 'event_processing_failed';
+  correlation_id: string; // UUID, propagated across all steps
+  event_type:
+    | "calendar_sync_started"
+    | "calendar_sync_completed"
+    | "travel_event_detected"
+    | "event_processing_failed";
   timestamp: ISO8601;
   user_id: string;
-  
+
   // Tool-specific
-  tool_name: 'google-calendar-mcp';
-  tool_operation: 'list-events' | 'search-events' | 'create-event';
+  tool_name: "google-calendar-mcp";
+  tool_operation: "list-events" | "search-events" | "create-event";
   tool_latency_ms: number;
-  tool_status: 'success' | 'timeout' | 'error' | 'rate_limited';
+  tool_status: "success" | "timeout" | "error" | "rate_limited";
   error_message?: string;
-  
+
   // Results
   events_synced?: number;
   events_processed?: number;
   hooks_emitted?: number;
   travel_events_detected?: number;
-  
+
   // Identifiers
   calendar_event_ids?: string[];
   hook_type?: string;
@@ -595,6 +651,7 @@ interface CalendarToolInvocationEvent {
 ```
 
 **Logging Strategy:**
+
 - Emit event at each step (sync start, sync complete, hook emit, failure).
 - Use correlation_id to trace end-to-end (calendar sync → task extraction → daily plan → user notification).
 - Store events in structured log system (Durable Object event log or external service).
@@ -607,13 +664,18 @@ interface CalendarToolInvocationEvent {
 ### Prerequisites
 
 1. **Google Cloud Project:**
+
    - Create project at https://console.cloud.google.com
    - Enable Google Calendar API
    - Create OAuth 2.0 credentials (Desktop app type)
    - Download `gcp-oauth.keys.json`
    - Add test user email as OAuth test user
+   - Configure OAuth **scopes** (minimum for chat-first read/write behavior):
+     - `https://www.googleapis.com/auth/calendar.readonly`
+     - `https://www.googleapis.com/auth/calendar.events`
 
 2. **Google Calendar MCP:**
+
    ```bash
    npm install @nspady/google-calendar-mcp
    # Run locally for MVP
@@ -621,13 +683,14 @@ interface CalendarToolInvocationEvent {
    ```
 
 3. **Cloudflare Workers:**
-   - Create `CalendarSyncWorker` (scheduled job)
    - Create `CalendarToolClient` (wrapper for MCP)
-   - Create `TaskExtractionWorker` (hook subscriber)
+   - _(Optional, background-sync version)_ Create `CalendarSyncWorker` (scheduled job)
+   - _(Optional, background-sync version)_ Create `TaskExtractionWorker` (hook subscriber)
 
 ### Configuration
 
 **Environment Variables:**
+
 ```
 GOOGLE_CALENDAR_MCP_HOST=localhost:3000  # or remote URL
 GOOGLE_OAUTH_KEYS_FILE=./gcp-oauth.keys.json
@@ -640,7 +703,7 @@ TRAVEL_EVENT_CONFIDENCE_THRESHOLD=0.75
 ### Integration Steps
 
 1. Implement `CalendarToolClient` Worker (wrap Google Calendar MCP calls)
-2. Implement `CalendarSyncWorker` (scheduled job to fetch events every 30 min)
+2. Implement `CalendarSyncWorker` (scheduled job)
 3. Implement `CalendarEventStoreDO` (store events, track processing)
 4. Implement `TravelEventDetectorDO` (detect travel patterns)
 5. Add calendar sync → `event_detected` hook emission
@@ -655,12 +718,14 @@ TRAVEL_EVENT_CONFIDENCE_THRESHOLD=0.75
 ### Calendar Awareness
 
 **Components:**
+
 - Calendar event list (read-only, from sync)
 - Travel event detection badge ("Trip to Paris detected")
 - Task cards linked to calendar events
 - Daily planner time blocks synchronized with calendar
 
 **Realtime Updates:**
+
 - Realtime channel: `user:{user_id}:calendar`
 - Events: `calendar_synced`, `travel_event_detected`, `event_processed`, `task_extracted`
 
@@ -690,21 +755,18 @@ TRAVEL_EVENT_CONFIDENCE_THRESHOLD=0.75
 
 ## Integration Checklist
 
-- [ ] Create Google Cloud project & OAuth credentials
-- [ ] Install Google Calendar MCP locally (MVP) or deploy to cloud
-- [ ] Implement `CalendarToolClient` Worker
-- [ ] Implement `CalendarSyncWorker` (scheduled job)
-- [ ] Implement `CalendarEventStoreDO`
-- [ ] Implement `TravelEventDetectorDO`
-- [ ] Implement `TaskExtractionWorker` (hook subscriber)
-- [ ] Update flight-ranking prompt with calendar context
-- [ ] Update daily-planner prompt with calendar events
-- [ ] Update summarization prompt with calendar references
-- [ ] Add correlation IDs for all calendar tool invocations
-- [ ] Test end-to-end: Calendar event → Travel/task detection → Flight/task creation
+- [ ] Create Google Cloud project & enable Calendar API
+- [ ] Create OAuth 2.0 credentials (Desktop app)
+- [ ] Add test email as OAuth test user
+- [ ] Install `@nspady/google-calendar-mcp` locally
+- [ ] Create `CalendarToolClient` Worker wrapper
+- [ ] Implement `TravelEventDetector` DO with calendar event detection
+- [ ] Add correlation IDs for calendar tool invocations
+- [ ] Test (chat-only MVP): chat request 8 call `CalendarToolClient` 8 detect travel/task context 8 respond in chat
 - [ ] Document OAuth setup for users
-- [ ] Add calendar event schema to observability logging
-- [ ] Set up Realtime channels for calendar events
+- [ ] Add calendar event schema to observability logs
+- [ ] _(Optional, background-sync version)_ Add travel event hook 8 `TravelWorkflow` DO trigger from `CalendarSyncWorker`
+- [ ] _(Optional, background-sync version)_ Set up Realtime channels for background calendar events
 - [ ] Performance test: 100 calendar events in 30-day range, latency < 2s
 
 ---
