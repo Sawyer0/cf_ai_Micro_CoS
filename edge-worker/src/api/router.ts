@@ -5,15 +5,18 @@
  */
 
 import { handleHealthCheck } from './routes/health';
+import { handleChatRequest } from './routes/chat';
+import { handleTasksRequest } from './routes/tasks';
 import { handleError } from './error-handler';
 import { getOrCreateCorrelationId, addCorrelationIdToResponse } from './middleware/correlation';
 import { requireAuth } from './middleware/auth';
-import { Logger } from '../observability/logger';
+import { CorrelationId } from '../domain/shared';
+import { Container } from '../config/container';
 
 export interface RouterContext {
     env: any;
     ctx: ExecutionContext;
-    logger: Logger;
+    container: Container;
 }
 
 export async function handleRequest(
@@ -33,15 +36,25 @@ export async function handleRequest(
         // All other routes require authentication
         const principal = await requireAuth(request);
 
-        // Route to handlers
+        // Route to handlers using container from context
         if (url.pathname.startsWith('/api/chat')) {
-            // TODO: Implement chat routes
-            return new Response('Chat API - TODO', { status: 501 });
+            const response = await handleChatRequest(
+                request,
+                principal,
+                CorrelationId.fromString(correlationId.toString()),
+                context.container
+            );
+            return addCorrelationIdToResponse(response, correlationId);
         }
 
         if (url.pathname.startsWith('/api/tasks')) {
-            // TODO: Implement task routes
-            return new Response('Task API - TODO', { status: 501 });
+            const response = await handleTasksRequest(
+                request,
+                principal,
+                CorrelationId.fromString(correlationId.toString()),
+                context.container
+            );
+            return addCorrelationIdToResponse(response, correlationId);
         }
 
         if (url.pathname.startsWith('/api/tools')) {
@@ -53,7 +66,11 @@ export async function handleRequest(
         return new Response('Not Found', { status: 404 });
 
     } catch (error) {
-        const response = handleError(error as Error, correlationId.toString(), context.logger);
+        const response = handleError(
+            error as Error,
+            correlationId.toString(),
+            context.container.logger
+        );
         return addCorrelationIdToResponse(response, correlationId);
     }
 }

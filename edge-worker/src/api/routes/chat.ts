@@ -10,6 +10,8 @@ import { requireAuth } from '../middleware/auth';
 import { getOrCreateCorrelationId } from '../middleware/correlation';
 import { jsonResponse } from '../error-handler';
 import { Logger } from '../../observability/logger';
+import { Principal, CorrelationId } from '../../domain/shared';
+import { Container } from '../../config/container';
 
 export async function handleChatPost(
     request: Request,
@@ -36,4 +38,18 @@ export async function handleChatPost(
         role: 'assistant',
         timestamp: assistantMessage.timestamp.toISOString()
     });
+}
+
+// Unified handler for routing
+export async function handleChatRequest(
+    request: Request,
+    principal: Principal,
+    correlationId: CorrelationId,
+    container: Container
+): Promise<Response> {
+    if (request.method === 'POST') {
+        return handleChatPost(request, container.chatService, container.logger);
+    }
+
+    return new Response('Method not allowed', { status: 405 });
 }

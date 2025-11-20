@@ -6,7 +6,7 @@
 
 import { CorrelationId } from '../../domain/shared/value-objects/correlation-id.vo';
 
-export const CORRELATION_ID_HEADER = 'X-Correlation-Id';
+export const CORRELATION_ID_HEADER = 'X-Correlation-ID';
 
 export function getOrCreateCorrelationId(request: Request): CorrelationId {
     const headerValue = request.headers.get(CORRELATION_ID_HEADER);

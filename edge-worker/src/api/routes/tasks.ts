@@ -7,6 +7,8 @@ import { validateCreateTaskRequest } from '../dto/task.dto';
 import { requireAuth } from '../middleware/auth';
 import { jsonResponse } from '../error-handler';
 import { Logger } from '../../observability/logger';
+import { Principal, CorrelationId } from '../../domain/shared';
+import { Container } from '../../config/container';
 
 export async function handleTasksGet(
     request: Request,
@@ -74,4 +76,33 @@ export async function handleTaskPatch(
         id: task.id,
         status: task.getStatus()
     });
+}
+
+// Unified handler for routing
+export async function handleTasksRequest(
+    request: Request,
+    principal: Principal,
+    correlationId: CorrelationId,
+    container: Container
+): Promise<Response> {
+    const url = new URL(request.url);
+
+    // GET /api/tasks - list tasks
+    if (request.method === 'GET' && url.pathname === '/api/tasks') {
+        return handleTasksGet(request, container.taskService);
+    }
+
+    // POST /api/tasks - create task
+    if (request.method === 'POST' && url.pathname === '/api/tasks') {
+        return handleTasksPost(request, container.taskService);
+    }
+
+    // PATCH /api/tasks/:id/:action - update task
+    const patchMatch = url.pathname.match(/^\/api\/tasks\/([^\/]+)\/([^\/]+)$/);
+    if (request.method === 'PATCH' && patchMatch) {
+        const [, taskId, action] = patchMatch;
+        return handleTaskPatch(request, container.taskService, taskId, action);
+    }
+
+    return new Response('Method not allowed', { status: 405 });
 }
