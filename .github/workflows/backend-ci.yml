@@ -1,55 +1,37 @@
-name: Backend CI
+name: Edge Worker CI
 
 on:
   push:
     paths:
-      - "backend/**"
+      - "edge-worker/**"
       - ".github/workflows/backend-ci.yml"
   pull_request:
     paths:
-      - "backend/**"
+      - "edge-worker/**"
       - ".github/workflows/backend-ci.yml"
 
 jobs:
-  backend-tests:
+  edge-worker-ci:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: edge-worker
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: "20"
 
-      - name: Install backend dependencies
-        working-directory: backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Lint backend with ruff
-        working-directory: backend
-        run: |
-          if command -v ruff >/dev/null 2>&1; then
-            ruff app tests
-          else
-            echo "ruff not installed (should have been from requirements.txt)" >&2
-            exit 1
-          fi
+      - name: Type check
+        run: npm run check
 
-      - name: Check formatting with black
-        working-directory: backend
-        run: |
-          if command -v black >/dev/null 2>&1; then
-            black --check app tests
-          else
-            echo "black not installed (should have been from requirements.txt)" >&2
-            exit 1
-          fi
-
-      - name: Run unit tests
-        working-directory: backend
-        run: |
-          pytest -q
+      - name: Lint (Prettier)
+        run: npm run lint
