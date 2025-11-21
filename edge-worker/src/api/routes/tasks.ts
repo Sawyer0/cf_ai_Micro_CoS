@@ -87,22 +87,39 @@ export async function handleTasksRequest(
 ): Promise<Response> {
     const url = new URL(request.url);
 
+    // Idempotency Check
+    const idempotencyKey = container.idempotency.getIdempotencyKey(request);
+    if (idempotencyKey) {
+        const cached = await container.idempotency.checkIdempotencyKey(idempotencyKey);
+        if (cached) return cached;
+    }
+
+    let response: Response;
+
     // GET /api/tasks - list tasks
     if (request.method === 'GET' && url.pathname === '/api/tasks') {
-        return handleTasksGet(request, container.taskService);
+        response = await handleTasksGet(request, container.taskService);
     }
-
     // POST /api/tasks - create task
-    if (request.method === 'POST' && url.pathname === '/api/tasks') {
-        return handleTasksPost(request, container.taskService);
+    else if (request.method === 'POST' && url.pathname === '/api/tasks') {
+        response = await handleTasksPost(request, container.taskService);
     }
-
     // PATCH /api/tasks/:id/:action - update task
-    const patchMatch = url.pathname.match(/^\/api\/tasks\/([^\/]+)\/([^\/]+)$/);
-    if (request.method === 'PATCH' && patchMatch) {
-        const [, taskId, action] = patchMatch;
-        return handleTaskPatch(request, container.taskService, taskId, action);
+    else {
+        const patchMatch = url.pathname.match(/^\/api\/tasks\/([^\/]+)\/([^\/]+)$/);
+        if (request.method === 'PATCH' && patchMatch) {
+            const [, taskId, action] = patchMatch;
+            response = await handleTaskPatch(request, container.taskService, taskId, action);
+        } else {
+            response = new Response('Method not allowed', { status: 405 });
+        }
     }
 
-    return new Response('Method not allowed', { status: 405 });
+    // Store Idempotency Response
+    if (idempotencyKey && response.ok) {
+        // Clone response to avoid consuming the stream of the returned response
+        await container.idempotency.storeResponse(idempotencyKey, response.clone());
+    }
+
+    return response;
 }

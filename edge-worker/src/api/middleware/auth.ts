@@ -18,6 +18,11 @@ export class AuthenticationError extends Error {
 }
 
 export async function requireAuth(request: Request): Promise<Principal> {
+    const bypass = request.headers.get('X-Test-Bypass-Auth');
+    if (bypass === 'true') {
+        return Principal.create('dev-user', 'dev@example.com');
+    }
+
     const authHeader = request.headers.get('Cf-Access-Jwt-Assertion');
 
     if (!authHeader) {

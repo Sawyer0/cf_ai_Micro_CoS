@@ -27,10 +27,19 @@ export async function handleRequest(
     const url = new URL(request.url);
 
     try {
+        // CORS preflight
+        if (request.method === 'OPTIONS') {
+            return withCors(
+                new Response(null, {
+                    status: 204,
+                })
+            );
+        }
+
         // Health check (no auth required)
         if (url.pathname === '/api/health') {
             const response = await handleHealthCheck(context.env);
-            return addCorrelationIdToResponse(response, correlationId);
+            return withCors(addCorrelationIdToResponse(response, correlationId));
         }
 
         // All other routes require authentication
@@ -44,7 +53,7 @@ export async function handleRequest(
                 CorrelationId.fromString(correlationId.toString()),
                 context.container
             );
-            return addCorrelationIdToResponse(response, correlationId);
+            return withCors(addCorrelationIdToResponse(response, correlationId));
         }
 
         if (url.pathname.startsWith('/api/tasks')) {
@@ -54,16 +63,16 @@ export async function handleRequest(
                 CorrelationId.fromString(correlationId.toString()),
                 context.container
             );
-            return addCorrelationIdToResponse(response, correlationId);
+            return withCors(addCorrelationIdToResponse(response, correlationId));
         }
 
         if (url.pathname.startsWith('/api/tools')) {
             // TODO: Implement tool routes
-            return new Response('Tools API - TODO', { status: 501 });
+            return withCors(new Response('Tools API - TODO', { status: 501 }));
         }
 
         // 404
-        return new Response('Not Found', { status: 404 });
+        return withCors(new Response('Not Found', { status: 404 }));
 
     } catch (error) {
         const response = handleError(
@@ -71,6 +80,22 @@ export async function handleRequest(
             correlationId.toString(),
             context.container.logger
         );
-        return addCorrelationIdToResponse(response, correlationId);
+        return withCors(addCorrelationIdToResponse(response, correlationId));
     }
+}
+
+function withCors(response: Response): Response {
+    const headers = new Headers(response.headers);
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    headers.set(
+        'Access-Control-Allow-Headers',
+        'Content-Type, X-Test-Bypass-Auth, Cf-Access-Jwt-Assertion'
+    );
+
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+    });
 }

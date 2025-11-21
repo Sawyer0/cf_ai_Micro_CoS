@@ -9,7 +9,7 @@ import { handleRequest } from './api/router';
 import { Logger } from './observability/logger';
 import { createContainer } from './config/container';
 import { loadConfig } from './config/settings';
-import { ChatSessionDO } from './chat-session-do';
+import { ChatSessionDO } from './durable-objects/chat-session/chat-session.do';
 
 // Export Durable Objects
 export { ChatSessionDO };
@@ -19,8 +19,9 @@ export interface Env {
   CHAT_SESSIONS: DurableObjectNamespace;
 
   // Bindings
-  D1: D1Database;
-  KV: KVNamespace;
+  DB: D1Database;
+  IDEMPOTENCY_KV: KVNamespace;
+  RATE_LIMIT_KV: KVNamespace;
   AI: any;
   ANALYTICS_ENGINE: any;
 

@@ -13,43 +13,23 @@ import { Logger } from '../../observability/logger';
 import { Principal, CorrelationId } from '../../domain/shared';
 import { Container } from '../../config/container';
 
-export async function handleChatPost(
-    request: Request,
-    chatService: ChatService,
-    logger: Logger
-): Promise<Response> {
-    const correlationId = getOrCreateCorrelationId(request);
-    const principal = await requireAuth(request);
-
-    const body = await request.json();
-    const chatRequest = validateChatRequest(body);
-
-    const { conversation, assistantMessage } = await chatService.sendMessage(
-        chatRequest.conversationId || null,
-        chatRequest.message,
-        principal,
-        correlationId
-    );
-
-    return jsonResponse({
-        conversationId: conversation.id.toString(),
-        messageId: assistantMessage.id.toString(),
-        content: assistantMessage.content,
-        role: 'assistant',
-        timestamp: assistantMessage.timestamp.toISOString()
-    });
-}
-
-// Unified handler for routing
 export async function handleChatRequest(
     request: Request,
     principal: Principal,
     correlationId: CorrelationId,
     container: Container
 ): Promise<Response> {
-    if (request.method === 'POST') {
-        return handleChatPost(request, container.chatService, container.logger);
-    }
+    // Use Principal ID to scope the Durable Object (One DO per user)
+    // This ensures all user sessions are coordinated
+    const doId = container.chatSessions.idFromName(principal.id);
+    const stub = container.chatSessions.get(doId);
 
-    return new Response('Method not allowed', { status: 405 });
+    // Forward the request to the Durable Object
+    // The DO handles both POST /chat and WebSocket Upgrades
+    // We need to rewrite the URL to match what the DO expects (/chat)
+    const url = new URL(request.url);
+    url.pathname = '/chat';
+    const newRequest = new Request(url.toString(), request);
+
+    return stub.fetch(newRequest);
 }

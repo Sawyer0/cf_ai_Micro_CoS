@@ -8,29 +8,25 @@ binding = "AI"
 
 [[kv_namespaces]]
 binding = "IDEMPOTENCY_KV"
-# TODO: replace these with real IDs created via `wrangler kv namespace create`
-id = "REPLACE_WITH_PRODUCTION_KV_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "98a796435557479c97e31b060f945b8e"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-# TODO: replace these with real IDs created via `wrangler kv namespace create`
-id = "REPLACE_WITH_PRODUCTION_RATE_LIMIT_ID"
-preview_id = "REPLACE_WITH_PREVIEW_RATE_LIMIT_ID"
+id = "beb522405ec345f5b7256661cbc3b0df"
 
 [durable_objects]
 bindings = [
-	{ name = "CHAT_SESSIONS", class_name = "ChatSessionDO" },
+  { name = "CHAT_SESSIONS", class_name = "ChatSessionDO" },
 ]
 
 [[migrations]]
 tag = "v1-chat-sessions"
-new_classes = ["ChatSessionDO"]
+new_sqlite_classes = ["ChatSessionDO"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "micro_cos_db"
-database_id = "REPLACE_WITH_DB_ID"
+database_id = "9ed5f7e4-869e-4b73-b725-8d041714e369"
 
 [vars]
 # Primary Llama model used by Micro CoS at the edge. Override per-environment if needed.

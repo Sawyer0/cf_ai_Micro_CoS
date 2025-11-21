@@ -1,94 +1,154 @@
 /**
  * DuffelFlightAdapter - Flight search adapter using Duffel API
- * 
- * Implements IFlightPort (ACL for external Duffel API)
- * Translates Duffel responses to Travel domain FlightOption entities
+ *
+ * Implements IFlightPort by composing:
+ * - DuffelApiClient (HTTP layer)
+ * - DuffelFlightMapper (ACL/translation layer)
+ * - FlightSearchValidator (validation layer)
  */
 
 import { IFlightPort, FlightSearchRequest } from '../../domain/travel/ports/flight.port';
-import { FlightOption, FlightSegment } from '../../domain/travel/entities/flight-option.entity';
-import { AirportCode } from '../../domain/travel/value-objects/airport-code.vo';
+import { FlightOption } from '../../domain/travel/entities/flight-option.entity';
 import { Logger } from '../../observability/logger';
+import { DuffelApiClient } from './clients/duffel-api.client';
+import { DuffelFlightMapper, DuffelFlightOffer } from './mappers/duffel-flight.mapper';
+import { FlightSearchValidator } from './validators/flight-search.validator';
 
-interface DuffelFlightOffer {
-    id: string;
-    slices: Array<{
-        segments: Array<{
-            origin: { iata_code: string };
-            destination: { iata_code: string };
-            departing_at: string;
-            arriving_at: string;
-            operating_carrier: { name: string };
-            operating_carrier_flight_number: string;
-        }>;
-    }>;
-    total_amount: string;
-    total_currency: string;
+interface DuffelOfferResponse {
+    data?: {
+        offers?: DuffelFlightOffer[];
+        id: string;
+    };
 }
 
 export class DuffelFlightAdapter implements IFlightPort {
+    private readonly client: DuffelApiClient;
+    private readonly mapper: DuffelFlightMapper;
+    private readonly validator: FlightSearchValidator;
+
     constructor(
         private readonly apiKey: string,
         private readonly logger: Logger
-    ) { }
+    ) {
+        this.validateCredentials();
+        this.client = new DuffelApiClient(apiKey, logger);
+        this.mapper = new DuffelFlightMapper(logger);
+        this.validator = new FlightSearchValidator();
+    }
 
     async searchFlights(request: FlightSearchRequest): Promise<FlightOption[]> {
+        const correlationId = this.generateCorrelationId();
+
         try {
+            // Validate request
+            this.validator.validateSearchRequest(request);
+
             this.logger.info('Searching flights via Duffel', {
-                metadata: { origin: request.origin, destination: request.destination }
+                metadata: {
+                    origin: request.origin,
+                    destination: request.destination,
+                    departureDate: request.departureDate,
+                    correlationId
+                }
             });
 
-            const response = await fetch('https://api.duffel.com/air/offer_requests', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    slices: [{
-                        origin: request.origin,
-                        destination: request.destination,
-                        departure_date: request.departureDate
-                    }],
-                    passengers: [{ type: 'adult' }],
-                    cabin_class: 'economy'
-                })
+            // Build search payload
+            const payload = this.buildSearchPayload(request);
+
+            // Call Duffel API
+            const response = await this.client.post<DuffelOfferResponse>(
+                '/offer_requests',
+                payload,
+                correlationId
+            );
+
+            // Translate response to domain entities
+            const offers = response.data?.offers || [];
+            const flights = this.mapper.translateOffers(offers);
+
+            this.logger.info('Flight search completed', {
+                metadata: {
+                    correlationId,
+                    offerCount: flights.length,
+                    requestId: response.data?.id
+                }
             });
 
-            const data = await response.json() as { data?: { offers?: DuffelFlightOffer[] } };
-
-            // ACL: Translate Duffel API → Domain entities
-            return this.translateOffers(data.data?.offers || []);
+            return flights;
         } catch (error) {
-            this.logger.error('Flight search failed', error as Error);
+            this.logger.error('Flight search failed', error as Error, {
+                metadata: { correlationId }
+            });
             return [];
         }
     }
 
     async getFlightDetails(flightId: string): Promise<FlightOption | null> {
-        // Simplified - would fetch from Duffel API
-        return null;
+        const correlationId = this.generateCorrelationId();
+
+        try {
+            if (!flightId) {
+                throw new Error('flightId is required');
+            }
+
+            this.logger.info('Fetching flight details', {
+                metadata: { flightId, correlationId }
+            });
+
+            const response = await this.client.get<{ data: DuffelFlightOffer }>(
+                `/offers/${flightId}`,
+                correlationId
+            );
+
+            if (!response.data) {
+                this.logger.warn('Flight offer not found', {
+                    metadata: { flightId, correlationId }
+                });
+                return null;
+            }
+
+            const flights = this.mapper.translateOffers([response.data]);
+            return flights[0] || null;
+        } catch (error) {
+            this.logger.error('Flight detail fetch failed', error as Error, {
+                metadata: { flightId, correlationId }
+            });
+            return null;
+        }
     }
 
-    private translateOffers(offers: DuffelFlightOffer[]): FlightOption[] {
-        return offers.map(offer => {
-            const segments: FlightSegment[] = offer.slices.flatMap(slice =>
-                slice.segments.map(seg => ({
-                    origin: AirportCode.create(seg.origin.iata_code),
-                    destination: AirportCode.create(seg.destination.iata_code),
-                    departureTime: new Date(seg.departing_at),
-                    arrivalTime: new Date(seg.arriving_at),
-                    airline: seg.operating_carrier.name,
-                    flightNumber: seg.operating_carrier_flight_number
-                }))
-            );
+    private buildSearchPayload(request: FlightSearchRequest): Record<string, unknown> {
+        const slices = [
+            {
+                origin: request.origin,
+                destination: request.destination,
+                departure_date: this.validator.formatDateForApi(request.departureDate)
+            }
+        ];
 
-            return FlightOption.reconstitute(
-                offer.id,
-                segments,
-                parseFloat(offer.total_amount),
-                offer.total_currency
-            );
-        });
+        // Add return slice if round-trip
+        if (request.returnDate) {
+            slices.push({
+                origin: request.destination,
+                destination: request.origin,
+                departure_date: this.validator.formatDateForApi(request.returnDate)
+            });
+        }
+
+        return {
+            slices,
+            passengers: Array(request.passengers || 1).fill({ type: 'adult' }),
+            cabin_class: 'economy'
+        };
+    }
+
+    private validateCredentials(): void {
+        if (!this.apiKey) {
+            this.logger.warn('Duffel API key is not configured');
+        }
+    }
+
+    private generateCorrelationId(): string {
+        return `flight-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     }
 }

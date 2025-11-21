@@ -33,6 +33,9 @@ export interface Container {
     taskRepository: D1TaskAdapter;
     eventLog: D1EventLogAdapter;
 
+    // Durable Objects
+    chatSessions: DurableObjectNamespace;
+
     // Application Services
     chatService: ChatService;
     taskService: TaskService;
@@ -46,10 +49,16 @@ export function createContainer(env: any, config: AppConfig): Container {
     // Adapters
     const llmAdapter = new WorkersAIAdapter(env.AI, logger);
     const flightAdapter = new DuffelFlightAdapter(config.duffelApiKey || '', logger);
-    const calendarAdapter = new GoogleCalendarAdapter(logger);
-    const chatRepository = new D1ChatAdapter(env.D1, logger);
-    const taskRepository = new D1TaskAdapter(env.D1, logger);
-    const eventLog = new D1EventLogAdapter(env.D1, logger);
+    const calendarAdapter = new GoogleCalendarAdapter(config.googleCalendarMcpUrl || 'http://localhost:3000', logger);
+
+    if (!env.DB) {
+        logger.error('D1 Database binding (DB) is missing in environment');
+        throw new Error('D1 Database binding (DB) is missing');
+    }
+
+    const chatRepository = new D1ChatAdapter(env.DB, logger);
+    const taskRepository = new D1TaskAdapter(env.DB, logger);
+    const eventLog = new D1EventLogAdapter(env.DB, logger);
 
     // Application Services
     const chatService = new ChatService(chatRepository, llmAdapter, logger);
@@ -59,11 +68,11 @@ export function createContainer(env: any, config: AppConfig): Container {
     return {
         logger,
         metrics,
-        rateLimiter: new RateLimiter(env.KV, {
+        rateLimiter: new RateLimiter(env.RATE_LIMIT_KV, {
             requestsPerMinute: config.rateLimitPerMinute,
             requestsPerHour: config.rateLimitPerHour
         }),
-        idempotency: new IdempotencyService(env.KV),
+        idempotency: new IdempotencyService(env.IDEMPOTENCY_KV),
 
         // Adapters
         llmAdapter,
@@ -72,6 +81,9 @@ export function createContainer(env: any, config: AppConfig): Container {
         chatRepository,
         taskRepository,
         eventLog,
+
+        // Durable Objects
+        chatSessions: env.CHAT_SESSIONS,
 
         // Services
         chatService,

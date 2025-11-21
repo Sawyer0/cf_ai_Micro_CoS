@@ -8,7 +8,7 @@ import { getSystemHealth } from '../../observability/health';
 
 export async function handleHealthCheck(env: any): Promise<Response> {
     try {
-        const health = await getSystemHealth(env.D1, env.AI);
+        const health = await getSystemHealth(env.DB, env.AI);
 
         return new Response(JSON.stringify(health), {
             status: health.status === 'healthy' ? 200 : 503,
