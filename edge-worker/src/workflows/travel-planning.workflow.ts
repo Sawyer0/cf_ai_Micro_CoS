@@ -121,8 +121,8 @@ export class TravelPlanningWorkflow extends WorkflowEntrypoint<WorkerEnv, Travel
 				})),
 				d.totalPrice,
 				d.currency,
-				d.bookingUrl
-			)
+				d.bookingUrl,
+			),
 		);
 
 		// Early return if no flights found
@@ -172,7 +172,7 @@ export class TravelPlanningWorkflow extends WorkflowEntrypoint<WorkerEnv, Travel
 					temperature: 0.3, // Low temperature for consistent ranking
 					maxTokens: 100,
 				},
-				correlationId
+				correlationId,
 			);
 
 			// Parse LLM ranking and reorder flights
@@ -213,8 +213,8 @@ export class TravelPlanningWorkflow extends WorkflowEntrypoint<WorkerEnv, Travel
 				})),
 				d.totalPrice,
 				d.currency,
-				d.bookingUrl
-			)
+				d.bookingUrl,
+			),
 		);
 
 		// Return final ranked results to caller (top 5)
@@ -238,9 +238,9 @@ export class TravelPlanningWorkflow extends WorkflowEntrypoint<WorkerEnv, Travel
 					rankedFlights.length > 0
 						? `I've found ${rankedFlights.length} flights from ${origin} to ${destination}. \n\nTop Recommendation:\nAirline: ${
 								firstSegment.airline
-						  }\nPrice: ${topFlight.totalPrice} ${topFlight.currency}\nDeparture: ${new Date(
-								firstSegment.departureTime
-						  ).toLocaleString()}\n\nWould you like to book this?`
+							}\nPrice: ${topFlight.totalPrice} ${topFlight.currency}\nDeparture: ${new Date(
+								firstSegment.departureTime,
+							).toLocaleString()}\n\nWould you like to book this?`
 						: `I couldn't find any flights from ${origin} to ${destination} on ${departureDate}.`;
 
 				await stub.fetch('http://do/workflow-result', {

@@ -110,7 +110,11 @@ async function streamAssistantResponse(
 
         let event: { type: string; token?: string; error?: string };
         try {
-          event = JSON.parse(json) as { type: string; token?: string; error?: string };
+          event = JSON.parse(json) as {
+            type: string;
+            token?: string;
+            error?: string;
+          };
         } catch {
           continue;
         }
@@ -126,7 +130,9 @@ async function streamAssistantResponse(
 }
 
 export function useCloudflareRuntime() {
-  const [messages, setMessages] = React.useState<readonly ThreadMessageLike[]>([]);
+  const [messages, setMessages] = React.useState<readonly ThreadMessageLike[]>(
+    [],
+  );
 
   const runtime = useExternalStoreRuntime<ThreadMessageLike>({
     messages,
@@ -193,10 +199,15 @@ export function useCloudflareRuntime() {
       };
 
       try {
-        await streamAssistantResponse(userText, conversationId, appendAssistantChunk);
+        await streamAssistantResponse(
+          userText,
+          conversationId,
+          appendAssistantChunk,
+        );
       } catch (error) {
         appendAssistantChunk(
-          `\n[error] Chat request failed: ${error instanceof Error ? error.message : String(error)
+          `\n[error] Chat request failed: ${
+            error instanceof Error ? error.message : String(error)
           }`,
         );
       }

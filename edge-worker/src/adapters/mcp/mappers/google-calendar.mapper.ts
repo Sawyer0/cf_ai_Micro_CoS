@@ -37,12 +37,10 @@ export interface GoogleCalendarEvent {
 }
 
 export class GoogleCalendarMapper {
-	constructor(private readonly logger: Logger) { }
+	constructor(private readonly logger: Logger) {}
 
 	translateEvents(events: GoogleCalendarEvent[], userId: string): CalendarEvent[] {
-		return events
-			.filter((e) => this.isValidEvent(e))
-			.map((e) => this.translateEvent(e, userId));
+		return events.filter((e) => this.isValidEvent(e)).map((e) => this.translateEvent(e, userId));
 	}
 
 	translateEvent(event: GoogleCalendarEvent, userId: string): CalendarEvent {
@@ -58,23 +56,23 @@ export class GoogleCalendarMapper {
 				externalId: event.id,
 				calendarProvider: 'google',
 				location: event.location,
-				participants: event.attendees?.map((a) => a.email)
+				participants: event.attendees?.map((a) => a.email),
 			},
-			event.description
+			event.description,
 		);
 	}
 
 	private isValidEvent(event: GoogleCalendarEvent): boolean {
 		if (!event.id || !event.summary) {
 			this.logger.debug('Invalid event: missing id or summary', {
-				metadata: { eventId: event.id }
+				metadata: { eventId: event.id },
 			});
 			return false;
 		}
 
 		if (!event.start) {
 			this.logger.debug('Invalid event: missing start date', {
-				metadata: { eventId: event.id }
+				metadata: { eventId: event.id },
 			});
 			return false;
 		}
@@ -82,9 +80,7 @@ export class GoogleCalendarMapper {
 		return true;
 	}
 
-	private parseGoogleDate(
-		dateObj: { dateTime?: string; date?: string }
-	): Date {
+	private parseGoogleDate(dateObj: { dateTime?: string; date?: string }): Date {
 		if (dateObj.dateTime) {
 			return new Date(dateObj.dateTime);
 		}

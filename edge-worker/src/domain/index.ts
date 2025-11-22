@@ -1,6 +1,6 @@
 /**
  * Domain Layer - Root Public API
- * 
+ *
  * Exports all bounded contexts, shared kernel, and ACLs
  */
 

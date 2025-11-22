@@ -86,7 +86,7 @@ export class ToolRegistry {
 					required: ['origin', 'destination', 'departure_date'],
 				},
 			},
-			searchFlights
+			searchFlights,
 		);
 
 		// Google Calendar MCP
@@ -114,7 +114,7 @@ export class ToolRegistry {
 					required: ['timeMin', 'timeMax'],
 				},
 			},
-			listEvents
+			listEvents,
 		);
 	}
 

@@ -6,12 +6,12 @@ import { Logger } from '../../observability/logger';
 async function ensureChatSchema(db: D1Database): Promise<void> {
 	await db
 		.prepare(
-			'CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, principal_id TEXT, conversation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)'
+			'CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, principal_id TEXT, conversation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
 		)
 		.run();
 	await db
 		.prepare(
-			'CREATE TABLE IF NOT EXISTS chat_events (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, conversation_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, correlation_id TEXT, created_at TEXT NOT NULL)'
+			'CREATE TABLE IF NOT EXISTS chat_events (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, conversation_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, correlation_id TEXT, created_at TEXT NOT NULL)',
 		)
 		.run();
 }
@@ -20,7 +20,7 @@ export async function handleChatConversationsRequest(
 	request: Request,
 	principal: Principal,
 	correlationId: CorrelationId,
-	db: D1Database
+	db: D1Database,
 ): Promise<Response> {
 	if (request.method !== 'GET') {
 		return new Response('Method Not Allowed', { status: 405 });
@@ -34,7 +34,7 @@ export async function handleChatConversationsRequest(
 
 	const results = await db
 		.prepare(
-			'SELECT id, conversation_id, created_at, updated_at FROM chat_sessions WHERE principal_id = ?1 ORDER BY updated_at DESC LIMIT ?2'
+			'SELECT id, conversation_id, created_at, updated_at FROM chat_sessions WHERE principal_id = ?1 ORDER BY updated_at DESC LIMIT ?2',
 		)
 		.bind(principal.id, limit)
 		.all();
@@ -63,7 +63,7 @@ export async function handleSaveConversationRequest(
 	request: Request,
 	principal: Principal,
 	correlationId: CorrelationId,
-	db: D1Database
+	db: D1Database,
 ): Promise<Response> {
 	const logger = new Logger('chat-history');
 	if (request.method !== 'POST') {
@@ -104,7 +104,7 @@ export async function handleSaveConversationRequest(
 		.prepare(
 			`INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5)
-       ON CONFLICT(id) DO UPDATE SET updated_at = ?5`
+       ON CONFLICT(id) DO UPDATE SET updated_at = ?5`,
 		)
 		.bind(id, principal.id, id, createdAt || new Date().toISOString(), updatedAt || new Date().toISOString())
 		.run();
@@ -122,7 +122,7 @@ export async function handleDeleteConversationRequest(
 	principal: Principal,
 	correlationId: CorrelationId,
 	db: D1Database,
-	conversationId: string
+	conversationId: string,
 ): Promise<Response> {
 	if (request.method !== 'DELETE') {
 		return new Response('Method Not Allowed', { status: 405 });
@@ -147,7 +147,7 @@ export async function handleChatHistoryRequest(
 	request: Request,
 	principal: Principal,
 	correlationId: CorrelationId,
-	db: D1Database
+	db: D1Database,
 ): Promise<Response> {
 	const logger = new Logger('chat-history');
 	if (request.method !== 'GET') {

@@ -7,7 +7,10 @@ import { Logger } from '../../observability/logger';
 export class LLMHandler {
 	private toolRegistry: ToolRegistry;
 
-	constructor(private readonly env: WorkerEnv, private readonly storage: StorageManager) {
+	constructor(
+		private readonly env: WorkerEnv,
+		private readonly storage: StorageManager,
+	) {
 		this.toolRegistry = new ToolRegistry();
 	}
 
@@ -25,7 +28,7 @@ export class LLMHandler {
 		conversationId: string,
 		principalId: string,
 		correlationId: string,
-		shouldStream: boolean
+		shouldStream: boolean,
 	): Promise<Response> {
 		const logger = new Logger('llm-handler');
 		const llamaMessages = [
@@ -61,7 +64,7 @@ export class LLMHandler {
 		userContent: string | undefined,
 		conversationId: string,
 		principalId: string,
-		correlationId: string
+		correlationId: string,
 	): Promise<Response> {
 		try {
 			const aiResult = await this.env.AI.run(getModelId(this.env), {
@@ -95,7 +98,7 @@ export class LLMHandler {
 		userContent: string | undefined,
 		conversationId: string,
 		principalId: string,
-		correlationId: string
+		correlationId: string,
 	): Promise<Response> {
 		const logger = new Logger('llm-handler');
 		try {

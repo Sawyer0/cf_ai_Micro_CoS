@@ -7,7 +7,8 @@
 		"start": "wrangler dev",
 		"deploy": "wrangler deploy",
 		"check": "tsc --noEmit",
-		"lint": "npx prettier --check src",
+		"lint": "prettier --check src",
+		"lint:fix": "prettier --write src",
 		"test": "vitest -c vitest.config.ts",
 		"test:unit": "vitest -c vitest.unit.config.ts"
 	},
@@ -15,6 +16,7 @@
 		"@cloudflare/vitest-pool-workers": "^0.10.10",
 		"@cloudflare/workers-types": "^4.20251112.0",
 		"@types/node": "^24.10.1",
+		"prettier": "^3.6.2",
 		"typescript": "^5.9.3",
 		"vitest": "^2.1.9",
 		"wrangler": "^4.49.1"

@@ -4,17 +4,20 @@ import { WebSocketManager } from './websocket.manager';
 import { Logger } from '../../observability/logger';
 
 export class StorageManager {
-	constructor(private readonly db: D1Database, private readonly wsManager: WebSocketManager) {}
+	constructor(
+		private readonly db: D1Database,
+		private readonly wsManager: WebSocketManager,
+	) {}
 
 	private async ensureSchema(): Promise<void> {
 		await this.db
 			.prepare(
-				'CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, principal_id TEXT, conversation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)'
+				'CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, principal_id TEXT, conversation_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
 			)
 			.run();
 		await this.db
 			.prepare(
-				'CREATE TABLE IF NOT EXISTS chat_events (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, conversation_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, correlation_id TEXT, created_at TEXT NOT NULL)'
+				'CREATE TABLE IF NOT EXISTS chat_events (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, conversation_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, correlation_id TEXT, created_at TEXT NOT NULL)',
 			)
 			.run();
 	}
@@ -30,7 +33,7 @@ export class StorageManager {
 		// CRITICAL: Do NOT update principal_id on conflict. Ownership is immutable.
 		await this.db
 			.prepare(
-				'INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at'
+				'INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at',
 			)
 			.bind(sessionId, args.principalId, args.conversationId, now)
 			.run();
@@ -39,7 +42,7 @@ export class StorageManager {
 		if (args.userMessage) {
 			await this.db
 				.prepare(
-					'INSERT INTO chat_events (id, session_id, conversation_id, role, content, correlation_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)'
+					'INSERT INTO chat_events (id, session_id, conversation_id, role, content, correlation_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)',
 				)
 				.bind(crypto.randomUUID(), sessionId, args.conversationId, 'user', args.userMessage, args.correlationId, now)
 				.run();
@@ -48,7 +51,7 @@ export class StorageManager {
 		// Log Assistant Message
 		await this.db
 			.prepare(
-				'INSERT INTO chat_events (id, session_id, conversation_id, role, content, correlation_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)'
+				'INSERT INTO chat_events (id, session_id, conversation_id, role, content, correlation_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)',
 			)
 			.bind(crypto.randomUUID(), sessionId, args.conversationId, 'assistant', args.assistantMessage, args.correlationId, now)
 			.run();
@@ -73,7 +76,7 @@ export class StorageManager {
 
 		await this.db
 			.prepare(
-				'INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(id) DO NOTHING'
+				'INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(id) DO NOTHING',
 			)
 			.bind(conversationId, principalId, conversationId, now)
 			.run();

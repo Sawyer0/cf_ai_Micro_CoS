@@ -1,6 +1,6 @@
 /**
  * Shared Kernel - Public API
- * 
+ *
  * Common value objects and base types used across all bounded contexts
  */
 

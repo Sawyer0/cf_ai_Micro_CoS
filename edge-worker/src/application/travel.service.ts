@@ -1,6 +1,6 @@
 /**
  * TravelService - Application service for travel workflows
- * 
+ *
  * Orchestrates flight search and travel event management
  */
 
@@ -12,57 +12,52 @@ import { FlightOption } from '../domain/travel/entities/flight-option.entity';
 import { Logger } from '../observability/logger';
 
 export interface SearchFlightsCommand {
-    origin: string;
-    destination: string;
-    departureDate: string;
-    returnDate?: string;
-    conversationId: string;
+	origin: string;
+	destination: string;
+	departureDate: string;
+	returnDate?: string;
+	conversationId: string;
 }
 
 export class TravelService {
-    constructor(
-        private readonly flightPort: IFlightPort,
-        private readonly logger: Logger
-    ) { }
+	constructor(
+		private readonly flightPort: IFlightPort,
+		private readonly logger: Logger,
+	) {}
 
-    async searchFlights(command: SearchFlightsCommand): Promise<{
-        travelEvent: TravelEvent;
-        flights: FlightOption[];
-    }> {
-        // Create travel event
-        const origin = AirportCode.create(command.origin);
-        const destination = AirportCode.create(command.destination);
-        const dates = DateRange.create(
-            new Date(command.departureDate),
-            command.returnDate ? new Date(command.returnDate) : new Date(command.departureDate)
-        );
+	async searchFlights(command: SearchFlightsCommand): Promise<{
+		travelEvent: TravelEvent;
+		flights: FlightOption[];
+	}> {
+		// Create travel event
+		const origin = AirportCode.create(command.origin);
+		const destination = AirportCode.create(command.destination);
+		const dates = DateRange.create(
+			new Date(command.departureDate),
+			command.returnDate ? new Date(command.returnDate) : new Date(command.departureDate),
+		);
 
-        const travelEvent = TravelEvent.create(
-            origin,
-            destination,
-            dates,
-            command.conversationId
-        );
+		const travelEvent = TravelEvent.create(origin, destination, dates, command.conversationId);
 
-        travelEvent.markSearching();
+		travelEvent.markSearching();
 
-        // Search flights via adapter
-        const flights = await this.flightPort.searchFlights({
-            origin: command.origin,
-            destination: command.destination,
-            departureDate: command.departureDate,
-            returnDate: command.returnDate
-        });
+		// Search flights via adapter
+		const flights = await this.flightPort.searchFlights({
+			origin: command.origin,
+			destination: command.destination,
+			departureDate: command.departureDate,
+			returnDate: command.returnDate,
+		});
 
-        travelEvent.addFlightOptions(flights);
+		travelEvent.addFlightOptions(flights);
 
-        this.logger.info('Flight search completed', {
-            metadata: {
-                travelEventId: travelEvent.id.toString(),
-                flightCount: flights.length
-            }
-        });
+		this.logger.info('Flight search completed', {
+			metadata: {
+				travelEventId: travelEvent.id.toString(),
+				flightCount: flights.length,
+			},
+		});
 
-        return { travelEvent, flights };
-    }
+		return { travelEvent, flights };
+	}
 }

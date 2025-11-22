@@ -1,6 +1,6 @@
 /**
  * Dependency Injection Container
- * 
+ *
  * Factory functions for creating services with dependencies
  */
 
@@ -23,89 +23,83 @@ import { TaskService } from '../application/task.service';
 import { TravelService } from '../application/travel.service';
 
 export interface Container {
-    logger: Logger;
-    metrics: AnalyticsEngineMetrics;
-    rateLimiter: RateLimiter;
-    idempotency: IdempotencyService;
+	logger: Logger;
+	metrics: AnalyticsEngineMetrics;
+	rateLimiter: RateLimiter;
+	idempotency: IdempotencyService;
 
-    // Adapters
-    llmAdapter: WorkersAIAdapter;
-    flightAdapter: DuffelFlightAdapter;
-    calendarAdapter: GoogleCalendarAdapter;
-    chatRepository: D1ChatAdapter;
-    taskRepository: D1TaskAdapter;
-    eventLog: D1EventLogAdapter;
+	// Adapters
+	llmAdapter: WorkersAIAdapter;
+	flightAdapter: DuffelFlightAdapter;
+	calendarAdapter: GoogleCalendarAdapter;
+	chatRepository: D1ChatAdapter;
+	taskRepository: D1TaskAdapter;
+	eventLog: D1EventLogAdapter;
 
-    // Durable Objects
-    chatSessions: DurableObjectNamespace;
+	// Durable Objects
+	chatSessions: DurableObjectNamespace;
 
-    // Application Services
-    chatService: ChatService;
-    taskService: TaskService;
-    travelService: TravelService;
+	// Application Services
+	chatService: ChatService;
+	taskService: TaskService;
+	travelService: TravelService;
 }
 
 import { validateBindings } from './bindings.validator';
 import { WorkerEnv } from '../env';
 
 export function createContainer(env: WorkerEnv, config: AppConfig): Container {
-    const logger = new Logger('edge-worker');
+	const logger = new Logger('edge-worker');
 
-    // Validate all bindings at startup
-    validateBindings(env, logger);
+	// Validate all bindings at startup
+	validateBindings(env, logger);
 
-    const metrics = new AnalyticsEngineMetrics(env.ANALYTICS_ENGINE);
+	const metrics = new AnalyticsEngineMetrics(env.ANALYTICS_ENGINE);
 
-    // Adapters
-    const llmAdapter = new WorkersAIAdapter(env.AI as any, logger);
+	// Adapters
+	const llmAdapter = new WorkersAIAdapter(env.AI as any, logger);
 
-    // Flight Adapter Dependencies
-    const duffelClient = new DuffelApiClient(config.duffelApiKey || '', logger);
-    const duffelMapper = new DuffelFlightMapper(logger);
-    const flightValidator = new FlightSearchValidator();
+	// Flight Adapter Dependencies
+	const duffelClient = new DuffelApiClient(config.duffelApiKey || '', logger);
+	const duffelMapper = new DuffelFlightMapper(logger);
+	const flightValidator = new FlightSearchValidator();
 
-    const flightAdapter = new DuffelFlightAdapter(
-        duffelClient,
-        duffelMapper,
-        flightValidator,
-        logger,
-        config.duffelApiKey || ''
-    );
+	const flightAdapter = new DuffelFlightAdapter(duffelClient, duffelMapper, flightValidator, logger, config.duffelApiKey || '');
 
-    const calendarAdapter = new GoogleCalendarAdapter(config.googleCalendarMcpUrl || 'http://localhost:3000', logger);
+	const calendarAdapter = new GoogleCalendarAdapter(config.googleCalendarMcpUrl || 'http://localhost:3000', logger);
 
-    const chatRepository = new D1ChatAdapter(env.DB, logger);
-    const taskRepository = new D1TaskAdapter(env.DB, logger);
-    const eventLog = new D1EventLogAdapter(env.DB, logger);
+	const chatRepository = new D1ChatAdapter(env.DB, logger);
+	const taskRepository = new D1TaskAdapter(env.DB, logger);
+	const eventLog = new D1EventLogAdapter(env.DB, logger);
 
-    // Application Services
-    const chatService = new ChatService(chatRepository, llmAdapter, logger);
-    const taskService = new TaskService(taskRepository, logger);
-    const travelService = new TravelService(flightAdapter, logger);
+	// Application Services
+	const chatService = new ChatService(chatRepository, llmAdapter, logger);
+	const taskService = new TaskService(taskRepository, logger);
+	const travelService = new TravelService(flightAdapter, logger);
 
-    return {
-        logger,
-        metrics,
-        rateLimiter: new RateLimiter(env.RATE_LIMIT_KV as any, {
-            requestsPerMinute: config.rateLimitPerMinute,
-            requestsPerHour: config.rateLimitPerHour
-        }),
-        idempotency: new IdempotencyService(env.IDEMPOTENCY_KV as any),
+	return {
+		logger,
+		metrics,
+		rateLimiter: new RateLimiter(env.RATE_LIMIT_KV as any, {
+			requestsPerMinute: config.rateLimitPerMinute,
+			requestsPerHour: config.rateLimitPerHour,
+		}),
+		idempotency: new IdempotencyService(env.IDEMPOTENCY_KV as any),
 
-        // Adapters
-        llmAdapter,
-        flightAdapter,
-        calendarAdapter,
-        chatRepository,
-        taskRepository,
-        eventLog,
+		// Adapters
+		llmAdapter,
+		flightAdapter,
+		calendarAdapter,
+		chatRepository,
+		taskRepository,
+		eventLog,
 
-        // Durable Objects
-        chatSessions: env.CHAT_SESSIONS as any,
+		// Durable Objects
+		chatSessions: env.CHAT_SESSIONS as any,
 
-        // Services
-        chatService,
-        taskService,
-        travelService
-    };
+		// Services
+		chatService,
+		taskService,
+		travelService,
+	};
 }

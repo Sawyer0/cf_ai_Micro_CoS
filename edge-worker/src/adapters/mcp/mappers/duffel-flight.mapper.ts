@@ -44,9 +44,7 @@ export class DuffelFlightMapper {
 	constructor(private readonly logger: Logger) {}
 
 	translateOffers(offers: DuffelFlightOffer[]): FlightOption[] {
-		return offers
-			.filter((offer) => this.isValidOffer(offer))
-			.map((offer) => this.translateOffer(offer));
+		return offers.filter((offer) => this.isValidOffer(offer)).map((offer) => this.translateOffer(offer));
 	}
 
 	private translateOffer(offer: DuffelFlightOffer): FlightOption {
@@ -59,29 +57,24 @@ export class DuffelFlightMapper {
 				airline: seg.operating_carrier.name,
 				flightNumber: seg.operating_carrier_flight_number,
 				stops: seg.stops_count || 0,
-				aircraft: seg.aircraft?.iata_code
-			}))
+				aircraft: seg.aircraft?.iata_code,
+			})),
 		);
 
-		return FlightOption.reconstitute(
-			offer.id,
-			segments,
-			parseFloat(offer.total_amount),
-			offer.total_currency
-		);
+		return FlightOption.reconstitute(offer.id, segments, parseFloat(offer.total_amount), offer.total_currency);
 	}
 
 	private isValidOffer(offer: DuffelFlightOffer): boolean {
 		if (!offer.id || !offer.slices || offer.slices.length === 0) {
 			this.logger.debug('Invalid offer: missing id or slices', {
-				metadata: { offerId: offer.id }
+				metadata: { offerId: offer.id },
 			});
 			return false;
 		}
 
 		if (!offer.total_amount || !offer.total_currency) {
 			this.logger.debug('Invalid offer: missing price or currency', {
-				metadata: { offerId: offer.id }
+				metadata: { offerId: offer.id },
 			});
 			return false;
 		}
@@ -89,14 +82,9 @@ export class DuffelFlightMapper {
 		// Verify all segments have required fields
 		for (const slice of offer.slices) {
 			for (const segment of slice.segments) {
-				if (
-					!segment.origin?.iata_code ||
-					!segment.destination?.iata_code ||
-					!segment.departing_at ||
-					!segment.arriving_at
-				) {
+				if (!segment.origin?.iata_code || !segment.destination?.iata_code || !segment.departing_at || !segment.arriving_at) {
 					this.logger.debug('Invalid segment: missing required fields', {
-						metadata: { offerId: offer.id }
+						metadata: { offerId: offer.id },
 					});
 					return false;
 				}

@@ -47,30 +47,18 @@ export class DuffelApiClient {
 
 	constructor(
 		private readonly apiKey: string,
-		private readonly logger: Logger
-	) { }
+		private readonly logger: Logger,
+	) {}
 
-	async get<T>(
-		endpoint: string,
-		correlationId?: string
-	): Promise<T> {
+	async get<T>(endpoint: string, correlationId?: string): Promise<T> {
 		return this.request<T>(endpoint, 'GET', undefined, correlationId);
 	}
 
-	async post<T>(
-		endpoint: string,
-		body: unknown,
-		correlationId?: string
-	): Promise<T> {
+	async post<T>(endpoint: string, body: unknown, correlationId?: string): Promise<T> {
 		return this.request<T>(endpoint, 'POST', body, correlationId);
 	}
 
-	private async request<T>(
-		endpoint: string,
-		method: 'GET' | 'POST',
-		body?: unknown,
-		correlationId?: string
-	): Promise<T> {
+	private async request<T>(endpoint: string, method: 'GET' | 'POST', body?: unknown, correlationId?: string): Promise<T> {
 		let lastError: Error | null = null;
 
 		for (let attempt = 0; attempt < this.maxRetries; attempt++) {
@@ -84,9 +72,9 @@ export class DuffelApiClient {
 						Authorization: `Bearer ${this.apiKey}`,
 						'Content-Type': 'application/json',
 						'Duffel-Version': 'v2',
-						...(correlationId && { 'X-Correlation-ID': correlationId })
+						...(correlationId && { 'X-Correlation-ID': correlationId }),
 					},
-					signal: AbortSignal.timeout(this.requestTimeoutMs)
+					signal: AbortSignal.timeout(this.requestTimeoutMs),
 				};
 
 				if (body && method === 'POST') {
@@ -99,12 +87,10 @@ export class DuffelApiClient {
 				// Handle rate limiting with exponential backoff
 				if (response.status === 429) {
 					const retryAfter = response.headers.get('retry-after');
-					const waitMs = retryAfter
-						? parseInt(retryAfter) * 1000
-						: this.retryDelayMs * Math.pow(2, attempt);
+					const waitMs = retryAfter ? parseInt(retryAfter) * 1000 : this.retryDelayMs * Math.pow(2, attempt);
 
 					this.logger.warn('Rate limited by Duffel API', {
-						metadata: { correlationId, waitMs, attempt }
+						metadata: { correlationId, waitMs, attempt },
 					});
 
 					if (attempt < this.maxRetries - 1) {
@@ -127,18 +113,15 @@ export class DuffelApiClient {
 						method,
 						endpoint,
 						latencyMs: Math.round(latencyMs),
-						attempt
-					}
+						attempt,
+					},
 				});
 
 				return data;
 			} catch (error) {
 				lastError = error as Error;
 
-				const isRetryable =
-					lastError.message.includes('429') ||
-					lastError.message.includes('timeout') ||
-					lastError.message.includes('503');
+				const isRetryable = lastError.message.includes('429') || lastError.message.includes('timeout') || lastError.message.includes('503');
 
 				if (isRetryable && attempt < this.maxRetries - 1) {
 					const delayMs = this.retryDelayMs * Math.pow(2, attempt);
@@ -149,23 +132,21 @@ export class DuffelApiClient {
 							endpoint,
 							attempt,
 							error: lastError.message,
-							retryAfterMs: delayMs
-						}
+							retryAfterMs: delayMs,
+						},
 					});
 
 					await this.sleep(delayMs);
 				} else {
 					this.logger.error('Duffel API call failed', lastError, {
-						metadata: { correlationId, method, endpoint, attempt }
+						metadata: { correlationId, method, endpoint, attempt },
 					});
 					throw lastError;
 				}
 			}
 		}
 
-		throw new Error(
-			`Duffel API call failed after ${this.maxRetries} retries: ${lastError?.message}`
-		);
+		throw new Error(`Duffel API call failed after ${this.maxRetries} retries: ${lastError?.message}`);
 	}
 
 	private sleep(ms: number): Promise<void> {

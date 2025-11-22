@@ -32,14 +32,10 @@ export class GoogleCalendarMcpClient {
 
 	constructor(
 		private readonly mcpUrl: string,
-		private readonly logger: Logger
+		private readonly logger: Logger,
 	) {}
 
-	async call<T>(
-		method: string,
-		params: Record<string, unknown>,
-		correlationId: string
-	): Promise<T> {
+	async call<T>(method: string, params: Record<string, unknown>, correlationId: string): Promise<T> {
 		let lastError: Error | null = null;
 
 		for (let attempt = 0; attempt < this.maxRetries; attempt++) {
@@ -49,7 +45,7 @@ export class GoogleCalendarMcpClient {
 					jsonrpc: '2.0',
 					method,
 					params,
-					id: requestId
+					id: requestId,
 				};
 
 				const startTime = performance.now();
@@ -58,9 +54,9 @@ export class GoogleCalendarMcpClient {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
-						'X-Correlation-ID': correlationId
+						'X-Correlation-ID': correlationId,
 					},
-					body: JSON.stringify(request)
+					body: JSON.stringify(request),
 				});
 
 				const latencyMs = performance.now() - startTime;
@@ -80,8 +76,8 @@ export class GoogleCalendarMcpClient {
 						correlationId,
 						method,
 						latencyMs: Math.round(latencyMs),
-						attempt
-					}
+						attempt,
+					},
 				});
 
 				return data.result as T;
@@ -94,8 +90,8 @@ export class GoogleCalendarMcpClient {
 						method,
 						attempt,
 						error: lastError.message,
-						retryAfterMs: this.retryDelayMs * (attempt + 1)
-					}
+						retryAfterMs: this.retryDelayMs * (attempt + 1),
+					},
 				});
 
 				if (attempt < this.maxRetries - 1) {

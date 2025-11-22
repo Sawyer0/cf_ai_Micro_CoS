@@ -269,7 +269,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 		const body = (await request.json()) as any;
 		const { message, conversationId, correlationId } = body;
 		this.logger.info('Received workflow result', {
-			metadata: { messageLength: message?.length, conversationId, correlationId }
+			metadata: { messageLength: message?.length, conversationId, correlationId },
 		});
 
 		// Store in history

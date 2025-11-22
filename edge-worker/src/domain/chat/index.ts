@@ -1,6 +1,6 @@
 /**
  * Chat Bounded Context - Public API
- * 
+ *
  * Exports aggregates, entities, value objects, events, and ports
  */
 
@@ -15,12 +15,7 @@ export { ConversationId } from './value-objects/conversation-id.vo';
 export { MessageId } from './value-objects/message-id.vo';
 
 // Events
-export {
-    ChatMessageReceived,
-    AssistantMessageGenerated,
-    ConversationStarted,
-    ConversationClosed
-} from './events/chat.events';
+export { ChatMessageReceived, AssistantMessageGenerated, ConversationStarted, ConversationClosed } from './events/chat.events';
 
 // Ports
 export { IChatRepository } from './ports/chat-repository.port';
