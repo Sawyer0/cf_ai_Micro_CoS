@@ -2,7 +2,7 @@
 
 An **AI-powered productivity assistant** for busy professionals, built on Cloudflare Workers and Durable Objects. Automatically detects events, extracts tasks, ranks travel options, and generates daily plans using agentic reasoning patterns.
 
-**Status:** Early-stage development | **Tech Stack:** Python (FastAPI), TypeScript (TanStack Start), Cloudflare (Workers, Durable Objects, Realtime, Workers AI), Llama 3.3, MCP
+**Status:** Early-stage development | **Tech Stack:**  TypeScript (TanStack Start), Cloudflare (Workers, Durable Objects, Realtime, Workers AI), Llama 3.3, MCP
 
 ---
 
@@ -228,17 +228,15 @@ emit: chat_message_received
 
 ### Backend
 
-- **API Runtime:** Python (FastAPI) – core REST + chat API implementation
-- **Edge & Platform:** Cloudflare Workers – edge routing, Realtime, and integration glue
-- **State & Persistence:** Cloudflare Durable Objects – strongly consistent per-user/domain state
-- **Caching:** Cloudflare KV – global, low-latency key-value store
-- **Real-time:** Cloudflare Realtime – WebSocket-based push notifications / streaming
+- **Runtime & API:** Cloudflare Workers (TypeScript) – Serverless edge compute
+- **State Management:** Cloudflare Durable Objects – Strongly consistent per-user state
+- **Database:** Cloudflare D1 (SQLite) – Structured relational data
 - **LLM:** Llama 3.3 70B (via Cloudflare Workers AI)
+- **Real-time:** Server-Sent Events (SSE) & Cloudflare Realtime
 
 ### Tool Integrations
 
-- **flights-MCP** – Search real flights via Duffel API (open-source MCP)
-- **google-calendar-mcp** – Read/write Google Calendar events (nspady open-source MCP, 768⭐)
+- **Duffel API** – Search real flights via API
 - **Future:** Gmail MCP, Maps/Geocoding, Timezone utilities
 
 ### Frontend
@@ -256,16 +254,12 @@ emit: chat_message_received
   - Python (FastAPI backend services)
 - **Package Managers:**
   - npm/yarn (frontend)
-  - pip/uv/Poetry (backend – choice of Python environment manager)
 - **Build:**
   - esbuild / Vite (frontend)
-  - Standard Python build & packaging for FastAPI app
 - **Testing:**
   - Jest / Vitest for frontend
-  - pytest for backend
 - **Deployment:**
   - Wrangler CLI for Cloudflare Workers (edge, Realtime, Workers AI, Durable Objects)
-  - Standard container or service deployment for FastAPI backend (Cloudflare in front as proxy/edge cache)
 
 ---
 
@@ -273,10 +267,9 @@ emit: chat_message_received
 
 ### Prerequisites
 
-- **Node.js** 18+ (LTS recommended)
+- **Node.js** 20+ (LTS recommended)
 - **npm** or **yarn**
 - **Cloudflare Account** (free tier OK for MVP)
-- **Google Cloud Project** with Calendar API enabled + OAuth credentials
 - **Duffel API key** (free tier available, sign up at https://duffel.com)
 
 ### Installation
@@ -291,37 +284,71 @@ emit: chat_message_received
 2. **Install dependencies:**
 
    ```bash
+   # Install root dependencies (if any)
    npm install
+
+   # Install Backend dependencies
+   cd edge-worker
+   npm install
+   cd ..
+
+   # Install Frontend dependencies
+   cd frontend
+   npm install
+   cd ..
    ```
 
 3. **Set up environment variables:**
-   Create `.env.local`:
-
+   
+   Create `.env` in `edge-worker/`:
    ```
    DUFFEL_API_KEY=<your_duffel_key>
-   GOOGLE_OAUTH_CREDENTIALS=<path_to_gcp-oauth.keys.json>
    CLOUDFLARE_ACCOUNT_ID=<your_account_id>
    CLOUDFLARE_API_TOKEN=<your_api_token>
    ```
 
-4. **Set up Google Cloud:**
-
-   - Create project at https://console.cloud.google.com
-   - Enable Google Calendar API
-   - Create OAuth 2.0 credentials (Desktop app type)
-   - Download `gcp-oauth.keys.json` and place in project root
-   - Add your email as test user
-
-5. **Deploy to Cloudflare:**
-
-   ```bash
-   npm run deploy
+   Create `.env` in `frontend/`:
+   ```
+   VITE_API_BASE_URL=http://127.0.0.1:8787
    ```
 
-6. **Start local development:**
+4. **Start Local Development:**
+
+   You need to run both the backend and frontend in separate terminals.
+
+   **Terminal 1 (Backend):**
    ```bash
+   cd edge-worker
    npm run dev
+   # Runs on http://127.0.0.1:8787
    ```
+
+   **Terminal 2 (Frontend):**
+   ```bash
+   cd frontend
+   npm run dev
+   # Runs on http://localhost:3000
+   ```
+
+5. **Access the App:**
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Deployment
+
+**Backend (Cloudflare Workers):**
+```bash
+cd edge-worker
+npm run deploy
+```
+
+**Frontend (Cloudflare Pages):**
+The frontend is deployed via GitHub Actions automatically on push to main. 
+To deploy manually:
+```bash
+cd frontend
+npm run build
+npx wrangler pages deploy dist --project-name=micro-cos-frontend
+```
 
 ---
 
@@ -438,71 +465,17 @@ Workers are **stateless orchestrators** that call DOs, tool clients, and LLM, th
 
 ### 2. Hook-Based Reactivity
 
-Rather than polling or hard-coded if/then logic, **hooks emit events** at key points inside chat-triggered workflows:
-
-```typescript
-// When a chat message is received at /api/chat:
-await chatWorkflow.emit({
-  type: "chat_message_received",
-  message,
-  correlationId: uuid(),
-});
-
-// Subscriber (e.g., task or travel workflow handler) receives hook:
-env.TravelEventDetector.stub().detectAndEmitFromChat(message);
-
-// Which triggers LLM reasoning:
-const tasks = await llm.extractTasksFromMessage(message);
-await taskMgmt.storeTasks(tasks);
-```
-
 **Benefit:** Loose coupling, no circular dependencies, easy to add new workflows while keeping the user-facing trigger as chat.
 
 ### 3. Agentic Reasoning Loop
 
-Each workflow follows: **Detect → Tool Call → LLM → Store → Notify**, but is initiated from chat:
-
-```
-User asks in chat: "Plan my Paris trip May 15–20 based on my calendar."
-    ↓
-[Detect] Chat workflow identifies travel intent and relevant context
-    ↓
-[Tool] FlightToolClient.searchFlights(origin, dest, dates)
-    ↓
-[LLM] Llama 3.3 ranks flights with flight-ranking prompt
-    ↓
-[Store] TravelWorkflowDO.publishSuggestions(rankedFlights)
-    ↓
-[Notify] Results streamed back via /api/chat and rendered in the chat UI
-    ↓
-User sees ranked options and can continue the conversation
-```
+The workflow follows a strict cycle initiated by chat: **Detect → Tool Call → LLM → Store → Notify**. This ensures all actions are grounded in tool outputs and user intent, with results streamed back to the UI in real-time.
 
 **Benefit:** Reduces hallucination (grounded in tool outputs), makes each step observable/debuggable.
 
 ### 4. Correlation IDs for Observability
 
-Every request/operation gets a **unique correlation ID**:
-
-```typescript
-const correlationId = generateUUID();
-
-// Logged at every step:
-logger.info("flight_search_requested", {
-  correlationId,
-  origin: "SFO",
-  destination: "CDG",
-  timestamp: now(),
-});
-
-logger.info("flight_search_completed", {
-  correlationId,
-  resultCount: 10,
-  latency: 450,
-});
-
-// Later, query all logs with same correlationId to see full trace
-```
+Every request and operation is tracked end-to-end with a unique **correlation ID**. This allows for full tracing of workflows, debugging of failures, and performance measurement across the distributed system.
 
 **Benefit:** Trace entire workflow end-to-end, debug failures, measure performance.
 
@@ -512,127 +485,15 @@ logger.info("flight_search_completed", {
 
 ### Tool Invocation Pattern
 
-Every external tool follows this flow:
-
-```typescript
-// 1. Tool Client (stateless Worker) wraps the MCP
-class FlightToolClient {
-  async searchFlights(request, options) {
-    const toolInvocationId = uuid();
-
-    // 2. Call external tool
-    const response = await callDuffelAPI(request);
-
-    // 3. Normalize to internal model
-    const normalized = this.normalize(response);
-
-    // 4. Log with correlation ID
-    logger.info("tool_invocation_success", {
-      correlationId: options.correlationId,
-      toolInvocationId,
-      tool: "flights-mcp",
-      resultCount: normalized.length,
-    });
-
-    return normalized;
-  }
-}
-
-// 2. Caller (Durable Object or Worker) invokes tool
-const flightOptions = await flightToolClient.searchFlights(
-  { origin: "SFO", destination: "CDG", departure_date: "2025-05-10" },
-  { correlationId }
-);
-
-// 3. Store result in DO
-await travelWorkflow.storeFlightResults(flightOptions);
-
-// 4. Emit hook for downstream
-await travelWorkflow.emit("flight_search_completed", { flightOptions });
-```
+External tools are wrapped in stateless clients that handle normalization, logging, and error handling before passing data to the domain layer. This ensures a consistent internal model regardless of the external provider.
 
 ### Prompt Execution Pattern
 
-LLM prompts are **modular templates** with structured inputs/outputs:
-
-```typescript
-// In .agent/prompts/flight-ranking.md:
-// Purpose, inputs, expected output format, error handling, examples
-
-// In code:
-class FlightRankingPrompt {
-  template = `
-    You are a travel advisor...
-    User: {user_preferences}
-    Flights: {flights_json}
-    Calendar: {calendar_context}
-    
-    Rank these flights 1-3...
-    Return JSON: { "ranked_flights": [...] }
-  `;
-
-  async execute(inputs) {
-    const prompt = this.template
-      .replace("{user_preferences}", JSON.stringify(inputs.preferences))
-      .replace("{flights_json}", JSON.stringify(inputs.flights))
-      .replace("{calendar_context}", inputs.calendarContext);
-
-    const response = await llm.generate(prompt);
-
-    // Validate JSON output
-    const parsed = JSON.parse(response);
-    if (!this.isValidRanking(parsed)) {
-      // Fallback: sort by price
-      return inputs.flights.sort((a, b) => a.price - b.price);
-    }
-
-    return parsed.ranked_flights;
-  }
-}
-```
+LLM prompts are managed as modular templates with structured inputs and outputs. Each prompt includes purpose, input variables, expected output format (JSON), and error handling strategies.
 
 ### Response Normalization Pattern
 
-Tool responses are **normalized to internal models** immediately:
-
-```typescript
-// flights-MCP response → internal FlightOption
-function normalizeFlightOffer(offer) {
-  return {
-    id: offer.id,
-    airline: offer.owner.iata_code,
-    departure: {
-      datetime: offer.slices[0].segments[0].departing_at,
-      airport: offer.slices[0].origin.iata_code,
-    },
-    arrival: {
-      datetime: offer.slices[0].segments[-1].arriving_at,
-      airport: offer.slices[0].destination.iata_code,
-    },
-    stops: offer.slices[0].segments.length - 1,
-    price: parseFloat(offer.total_amount),
-    currency: offer.total_currency,
-    // ... other fields
-  };
-}
-
-// google-calendar-mcp response → internal CalendarEvent
-function normalizeGoogleCalendarEvent(googleEvent) {
-  return {
-    id: googleEvent.id,
-    title: googleEvent.summary,
-    description: googleEvent.description,
-    start: new Date(googleEvent.start.dateTime || googleEvent.start.date),
-    end: new Date(googleEvent.end.dateTime || googleEvent.end.date),
-    location: googleEvent.location,
-    attendees: googleEvent.attendees?.map((a) => ({
-      email: a.email,
-      status: a.responseStatus,
-    })),
-    // ...
-  };
-}
-```
+Tool responses are normalized to internal domain models immediately upon receipt. This decoupling ensures that changes to external APIs do not ripple through the core application logic.
 
 ---
 
@@ -710,105 +571,16 @@ wrangler tail
 
 ---
 
-## Contributing
-
-### Code Style
-
-- **TypeScript strict mode** enabled
-- **SOLID principles:** Single responsibility, open/closed, dependency injection
-- **Error handling:** Custom error classes, structured error logging
-- **Testing:** ≥80% coverage for critical paths
-
-### Branching Strategy
-
-- `main` – Production-ready code
-- `develop` – Integration branch
-- `feature/*` – Feature branches
-- `fix/*` – Bug fix branches
-
-### Commit Convention
-
-```
-feat: add task extraction from emails
-fix: correct timezone handling in daily planner
-docs: update README with architecture diagram
-refactor: extract FlightToolClient to base class
-test: add test cases for freebusy merging logic
-```
-
-### Pull Request Process
-
-1. Create feature branch: `git checkout -b feature/cool-feature`
-2. Make changes & commit with conventional messages
-3. Write tests (≥80% coverage for new code)
-4. Submit PR with description of changes
-5. Address code review feedback
-6. Merge to `develop`
-
-### Documentation
-
-- Architecture decisions → `.agent/architecture/`
-- Prompt templates → `.agent/prompts/{name}.md` with purpose, inputs, outputs, examples
-- Tool specifications → `.agent/tools/{mcp}/{tool}.md` with request/response, use cases, error handling
-- Code comments for complex logic, not obvious code
-
----
-
-## Roadmap
-
-### Phase 1: Core (Current)
-
-- [x] Calendar sync & event parsing
-- [x] Travel event detection
-- [x] Flight search & ranking
-- [x] Task extraction
-- [x] Daily planner
-- [x] Observability framework
-
-### Phase 2: Expansion (Q2 2025)
-
-- [ ] Email (Gmail MCP) integration
-- [ ] Meeting summarization with decision tracking
-- [ ] Slack context integration
-- [ ] Hotel/accommodation booking alongside flights
-- [ ] Multi-user support (team calendars, shared tasks)
-
-### Phase 3: Intelligence (Q3 2025)
-
-- [ ] Learn user preferences from past decisions
-- [ ] Predict optimal meeting times
-- [ ] Suggest task decomposition with subtasks
-- [ ] Context-aware reminders based on location/time
-
-### Phase 4: Extensibility (Q4 2025)
-
-- [ ] Plugin system for custom tools
-- [ ] Workflow builder UI
-- [ ] Integration marketplace
-- [ ] Open-source community contributions
-
----
-
 ## License
 
 MIT License – See LICENSE file for details.
 
 ---
 
-## Support & Questions
-
-- **Issues:** GitHub Issues (bug reports, feature requests)
-- **Discussions:** GitHub Discussions (questions, ideas)
-- **Documentation:** See `.agent/` directory for architecture & tool specs
-- **Contact:** Open an issue with `[question]` prefix
-
----
-
 ## Acknowledgments
 
 - **Cloudflare** – Workers, Durable Objects, Realtime, Workers AI
-- **Duffel** – flights-MCP / flight search API
-- **nspady** – google-calendar-mcp (open-source implementation)
+- **Duffel** – flight search API
 - **Llama 3.3** – Reasoning backbone
 - Inspired by Claude Code Infrastructure patterns: event-driven hooks, modular skills, correlation-based observability
 
