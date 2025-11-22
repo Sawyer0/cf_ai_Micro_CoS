@@ -2,6 +2,7 @@
  * Tool Parser Unit Tests
  */
 
+import { describe, test, expect, beforeEach } from 'vitest';
 import { ToolCallParser } from '../src/tool-parser';
 
 describe('ToolCallParser', () => {
@@ -114,7 +115,8 @@ describe('ToolCallParser', () => {
 		const result = parser.processChunk(input);
 
 		expect(result.tools).toHaveLength(1);
-		expect(result.tools[0].args.outer.inner).toBe('value');
-		expect(result.tools[0].args.array).toEqual([1, 2, 3]);
+		const args: any = result.tools[0].args;
+		expect(args.outer.inner).toBe('value');
+		expect(args.array).toEqual([1, 2, 3]);
 	});
 });

@@ -29,6 +29,28 @@ export interface ChatHistoryResponse {
     hasMore: boolean;
 }
 
+export interface ChatConversationSummary {
+    id: string;
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ChatConversationsResponse {
+    conversations: ChatConversationSummary[];
+}
+
+export interface SaveConversationRequest {
+    id: string;
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface DeleteConversationRequest {
+    id: string;
+}
+
 export function validateChatRequest(data: any): ChatRequest {
     if (!data.message || typeof data.message !== 'string') {
         throw new Error('Invalid chat request: message required');

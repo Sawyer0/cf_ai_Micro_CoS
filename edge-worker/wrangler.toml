@@ -1,9 +1,9 @@
 name = "micro-cos-edge-worker"
 main = "src/index.ts"
-compatibility_date = "2025-11-20"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
 
 [ai]
-# Workers AI binding, available as env.AI inside the Worker
 binding = "AI"
 
 [[kv_namespaces]]
@@ -19,6 +19,29 @@ bindings = [
   { name = "CHAT_SESSIONS", class_name = "ChatSessionDO" },
 ]
 
+[[workflows]]
+name = "travel-planning-workflow"
+binding = "TRAVEL_PLANNING"
+class_name = "TravelPlanningWorkflow"
+
+[[workflows]]
+name = "task-extraction-workflow"
+binding = "TASK_EXTRACTION"
+class_name = "TaskExtractionWorkflow"
+
+[[workflows]]
+name = "daily-planning-workflow"
+binding = "DAILY_PLANNING"
+class_name = "DailyPlanningWorkflow"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
 [[migrations]]
 tag = "v1-chat-sessions"
 new_sqlite_classes = ["ChatSessionDO"]
@@ -29,5 +52,4 @@ database_name = "micro_cos_db"
 database_id = "9ed5f7e4-869e-4b73-b725-8d041714e369"
 
 [vars]
-# Primary Llama model used by Micro CoS at the edge. Override per-environment if needed.
 WORKERS_AI_MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"

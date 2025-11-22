@@ -127,6 +127,30 @@ export class Task {
         return this.status;
     }
 
+    getTitle(): string {
+        return this.title;
+    }
+
+    getDescription(): string | undefined {
+        return this.description;
+    }
+
+    getPriority(): TaskPriority {
+        return this.priority;
+    }
+
+    getDueDate(): Date | undefined {
+        return this.dueDate;
+    }
+
+    getUserId(): string {
+        return this.userId;
+    }
+
+    getMetadata(): TaskMetadata {
+        return this.metadata;
+    }
+
     isOverdue(): boolean {
         if (!this.dueDate) return false;
         return this.dueDate < new Date() && this.status !== 'completed';

@@ -27,7 +27,9 @@ export class IdempotencyService {
     }
 
     async storeResponse(key: string, response: Response): Promise<void> {
-        const body = await response.json();
+        // Clone response to avoid consuming the body of the original response
+        const clonedResponse = response.clone();
+        const body = await clonedResponse.json();
 
         const headers: Record<string, string> = {};
         response.headers.forEach((value, key) => {

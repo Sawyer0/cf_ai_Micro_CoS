@@ -38,6 +38,13 @@ export class LLMHandler {
             })),
         ];
 
+        // Debug: Log the last user message to verify context injection
+        const lastUserMessage = [...llamaMessages].reverse().find(m => m.role === 'user');
+        if (lastUserMessage) {
+            console.log('[LLMHandler] Last user message length:', lastUserMessage.content.length);
+            console.log('[LLMHandler] Last user message preview:', lastUserMessage.content.substring(0, 300));
+        }
+
         if (shouldStream) {
             return this.streamResponse(llamaMessages, userContent, conversationId, principalId, correlationId);
         } else {
@@ -100,9 +107,6 @@ export class LLMHandler {
             const messageId = crypto.randomUUID();
             const self = this;
 
-            const toolExecutor = new ToolExecutor(this.toolRegistry, this.env, correlationId);
-            const toolParser = new ToolCallParser();
-
             const sseStream = new ReadableStream<Uint8Array>({
                 async start(controller) {
                     const send = (event: SseEvent) => {
@@ -110,45 +114,68 @@ export class LLMHandler {
                     };
 
                     const reader = aiStream.getReader();
+                    let buffer = '';
+                    let lastResponse = '';
+
                     try {
                         while (true) {
                             const { value, done } = await reader.read();
                             if (done) break;
                             if (!value) continue;
-                            const chunk = decoder.decode(value, { stream: true });
-                            if (!chunk) continue;
+                            buffer += decoder.decode(value, { stream: true });
 
-                            const { text, tools } = toolParser.processChunk(chunk);
-                            if (text) {
-                                transcript += text;
-                                send({ type: 'token', token: text });
+                            // Workers AI streaming uses SSE: "data: { ... }\n\n"
+                            let separatorIndex: number;
+                            while ((separatorIndex = buffer.indexOf('\n\n')) !== -1) {
+                                const rawEvent = buffer.slice(0, separatorIndex).trim();
+                                buffer = buffer.slice(separatorIndex + 2);
+
+                                if (rawEvent.startsWith('data: ')) {
+                                    const json = rawEvent.slice(6);
+                                    if (json === '[DONE]') continue;
+
+                                    try {
+                                        const obj = JSON.parse(json) as any;
+                                        const full = typeof obj.response === 'string' ? obj.response : '';
+                                        if (!full) continue;
+
+                                        let delta = '';
+                                        // Check if the response is accumulated (starts with previous response)
+                                        // or if it's a new token delta (Llama 3.3 behavior on Workers AI)
+                                        if (lastResponse && full.startsWith(lastResponse)) {
+                                            delta = full.slice(lastResponse.length);
+                                        } else {
+                                            delta = full;
+                                        }
+
+                                        lastResponse = full;
+
+                                        if (delta) {
+                                            transcript += delta;
+                                            send({ type: 'token', token: delta });
+                                        }
+                                    } catch (e) {
+                                        // Ignore parse errors
+                                    }
+                                }
                             }
-
-                            for (const toolCall of tools) {
-                                await self.executeTool(toolCall, toolExecutor, send);
-                            }
                         }
-
-                        const { text: finalText, tools: finalTools } = toolParser.flush();
-                        if (finalText) {
-                            transcript += finalText;
-                            send({ type: 'token', token: finalText });
-                        }
-                        for (const toolCall of finalTools) {
-                            await self.executeTool(toolCall, toolExecutor, send);
-                        }
+                    } catch (error) {
+                        console.error('Stream reading error:', error);
+                        send({ type: 'error', error: 'Stream failed' });
                     } finally {
                         send({ type: 'done', message_id: messageId });
                         controller.close();
-                        await self.storage.logTurn({
+                        // Log the turn asynchronously
+                        self.storage.logTurn({
                             principalId,
                             conversationId,
                             correlationId,
                             userMessage: userContent,
                             assistantMessage: transcript
-                        });
+                        }).catch(err => console.error('Failed to log turn:', err));
                     }
-                },
+                }
             });
 
             return new Response(sseStream, {

@@ -21,6 +21,24 @@ export interface DuffelErrorResponse {
 	errors: DuffelApiError[];
 }
 
+export interface DuffelFlightOffer {
+	id: string;
+	total_amount: string;
+	total_currency: string;
+	slices: any[];
+	passengers: any[];
+	owner: {
+		name: string;
+	};
+}
+
+export interface DuffelOfferResponse {
+	data: {
+		offers: DuffelFlightOffer[];
+		id: string;
+	};
+}
+
 export class DuffelApiClient {
 	private readonly apiBaseUrl = 'https://api.duffel.com/air';
 	private readonly maxRetries = 3;
@@ -30,7 +48,7 @@ export class DuffelApiClient {
 	constructor(
 		private readonly apiKey: string,
 		private readonly logger: Logger
-	) {}
+	) { }
 
 	async get<T>(
 		endpoint: string,
@@ -65,6 +83,7 @@ export class DuffelApiClient {
 					headers: {
 						Authorization: `Bearer ${this.apiKey}`,
 						'Content-Type': 'application/json',
+						'Duffel-Version': 'v2',
 						...(correlationId && { 'X-Correlation-ID': correlationId })
 					},
 					signal: AbortSignal.timeout(this.requestTimeoutMs)
@@ -136,6 +155,12 @@ export class DuffelApiClient {
 
 					await this.sleep(delayMs);
 				} else {
+					console.log('[DuffelAPI] Error details:', {
+						status: lastError.message,
+						endpoint,
+						method,
+						attempt
+					});
 					this.logger.error('Duffel API call failed', lastError, {
 						metadata: { correlationId, method, endpoint, attempt }
 					});

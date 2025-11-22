@@ -70,35 +70,4 @@ export function createSseFromTranscript(transcript: string, correlationId: strin
   });
 }
 
-export function requireAuth(request: Request, correlationId: string): Response | null {
-  const accessJwt = request.headers.get('CF-Access-JWT-Assertion');
-  if (!accessJwt) {
-    return createErrorResponse(
-      'UNAUTHORIZED',
-      'Missing CF-Access-JWT-Assertion header. Request must go through Cloudflare Access.',
-      401,
-      correlationId,
-    );
-  }
 
-  // Cloudflare Access validates the JWT before the Worker in production, so we
-  // only check for presence here.
-  return null;
-}
-
-export function getPrincipalIdFromRequest(request: Request): string {
-  const jwt = request.headers.get('CF-Access-JWT-Assertion');
-  if (!jwt) return 'anonymous';
-  const parts = jwt.split('.');
-  if (parts.length !== 3) return 'anonymous';
-  try {
-    const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
-    const payload = JSON.parse(payloadJson) as {
-      sub?: string;
-      email?: string;
-    };
-    return payload.sub || payload.email || 'anonymous';
-  } catch {
-    return 'anonymous';
-  }
-}

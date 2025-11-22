@@ -4,7 +4,6 @@
 
 import { TaskService } from '../../application/task.service';
 import { validateCreateTaskRequest } from '../dto/task.dto';
-import { requireAuth } from '../middleware/auth';
 import { jsonResponse } from '../error-handler';
 import { Logger } from '../../observability/logger';
 import { Principal, CorrelationId } from '../../domain/shared';
@@ -12,9 +11,9 @@ import { Container } from '../../config/container';
 
 export async function handleTasksGet(
     request: Request,
+    principal: Principal,
     taskService: TaskService
 ): Promise<Response> {
-    const principal = await requireAuth(request);
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '50', 10);
 
@@ -33,9 +32,9 @@ export async function handleTasksGet(
 
 export async function handleTasksPost(
     request: Request,
+    principal: Principal,
     taskService: TaskService
 ): Promise<Response> {
-    const principal = await requireAuth(request);
     const body = await request.json();
     const taskRequest = validateCreateTaskRequest(body);
 
@@ -57,12 +56,11 @@ export async function handleTasksPost(
 
 export async function handleTaskPatch(
     request: Request,
+    principal: Principal,
     taskService: TaskService,
     taskId: string,
     action: string
 ): Promise<Response> {
-    const principal = await requireAuth(request);
-
     let task;
     if (action === 'start') {
         task = await taskService.startTask(taskId, principal.id);
@@ -98,18 +96,18 @@ export async function handleTasksRequest(
 
     // GET /api/tasks - list tasks
     if (request.method === 'GET' && url.pathname === '/api/tasks') {
-        response = await handleTasksGet(request, container.taskService);
+        response = await handleTasksGet(request, principal, container.taskService);
     }
     // POST /api/tasks - create task
     else if (request.method === 'POST' && url.pathname === '/api/tasks') {
-        response = await handleTasksPost(request, container.taskService);
+        response = await handleTasksPost(request, principal, container.taskService);
     }
     // PATCH /api/tasks/:id/:action - update task
     else {
         const patchMatch = url.pathname.match(/^\/api\/tasks\/([^\/]+)\/([^\/]+)$/);
         if (request.method === 'PATCH' && patchMatch) {
             const [, taskId, action] = patchMatch;
-            response = await handleTaskPatch(request, container.taskService, taskId, action);
+            response = await handleTaskPatch(request, principal, container.taskService, taskId, action);
         } else {
             response = new Response('Method not allowed', { status: 405 });
         }

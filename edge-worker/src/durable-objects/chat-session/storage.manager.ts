@@ -1,4 +1,4 @@
-import { D1Database, Env } from '../../env';
+import { D1Database, WorkerEnv } from '../../env';
 import { LogTurnArgs } from './types';
 import { WebSocketManager } from './websocket.manager';
 
@@ -24,8 +24,10 @@ export class StorageManager {
         const now = new Date().toISOString();
 
         // Update Session
+        // Update Session
+        // CRITICAL: Do NOT update principal_id on conflict. Ownership is immutable.
         await this.db.prepare(
-            'INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(id) DO UPDATE SET principal_id = excluded.principal_id, conversation_id = excluded.conversation_id, updated_at = excluded.updated_at'
+            'INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at'
         ).bind(sessionId, args.principalId, args.conversationId, now).run();
 
         // Log User Message
@@ -48,6 +50,19 @@ export class StorageManager {
             conversationId: args.conversationId,
             timestamp: now
         });
+    }
+
+    /**
+     * Ensure session exists in database before processing messages
+     * This prevents 404 errors when frontend tries to load messages
+     */
+    async ensureSession(conversationId: string, principalId: string): Promise<void> {
+        await this.ensureSchema();
+        const now = new Date().toISOString();
+
+        await this.db.prepare(
+            'INSERT INTO chat_sessions (id, principal_id, conversation_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(id) DO NOTHING'
+        ).bind(conversationId, principalId, conversationId, now).run();
     }
 
     async cleanup(retentionDays: number = 7): Promise<void> {

@@ -9,45 +9,39 @@
 
 import { IFlightPort, FlightSearchRequest } from '../../domain/travel/ports/flight.port';
 import { FlightOption } from '../../domain/travel/entities/flight-option.entity';
-import { Logger } from '../../observability/logger';
-import { DuffelApiClient } from './clients/duffel-api.client';
-import { DuffelFlightMapper, DuffelFlightOffer } from './mappers/duffel-flight.mapper';
+import { AirportCode } from '../../domain/travel/value-objects/airport-code.vo';
+import { DuffelApiClient, DuffelOfferResponse, DuffelFlightOffer } from './clients/duffel-api.client';
+import { DuffelFlightMapper } from './mappers/duffel-flight.mapper';
 import { FlightSearchValidator } from './validators/flight-search.validator';
-
-interface DuffelOfferResponse {
-    data?: {
-        offers?: DuffelFlightOffer[];
-        id: string;
-    };
-}
+import { Logger } from '../../observability/logger';
+import { withRetry } from '../../infrastructure/retry';
 
 export class DuffelFlightAdapter implements IFlightPort {
-    private readonly client: DuffelApiClient;
-    private readonly mapper: DuffelFlightMapper;
-    private readonly validator: FlightSearchValidator;
-
     constructor(
-        private readonly apiKey: string,
-        private readonly logger: Logger
-    ) {
-        this.validateCredentials();
-        this.client = new DuffelApiClient(apiKey, logger);
-        this.mapper = new DuffelFlightMapper(logger);
-        this.validator = new FlightSearchValidator();
-    }
+        private readonly client: DuffelApiClient,
+        private readonly mapper: DuffelFlightMapper,
+        private readonly validator: FlightSearchValidator,
+        private readonly logger: Logger,
+        private readonly apiKey: string
+    ) { }
 
     async searchFlights(request: FlightSearchRequest): Promise<FlightOption[]> {
         const correlationId = this.generateCorrelationId();
 
+        // Mock check
+        if (request.origin === 'MOCK') {
+            return this.getMockFlights(request);
+        }
+
         try {
-            // Validate request
+            this.validateCredentials();
             this.validator.validateSearchRequest(request);
 
-            this.logger.info('Searching flights via Duffel', {
+            this.logger.info('Searching flights', {
                 metadata: {
                     origin: request.origin,
                     destination: request.destination,
-                    departureDate: request.departureDate,
+                    date: request.departureDate,
                     correlationId
                 }
             });
@@ -55,11 +49,26 @@ export class DuffelFlightAdapter implements IFlightPort {
             // Build search payload
             const payload = this.buildSearchPayload(request);
 
-            // Call Duffel API
-            const response = await this.client.post<DuffelOfferResponse>(
-                '/offer_requests',
-                payload,
-                correlationId
+            // Call Duffel API with Retry
+            const response = await withRetry(
+                () => this.client.post<DuffelOfferResponse>(
+                    '/offer_requests',
+                    payload,
+                    correlationId
+                ),
+                {
+                    maxAttempts: 3,
+                    initialDelayMs: 200,
+                    maxDelayMs: 2000,
+                    backoffMultiplier: 2,
+                    retryableErrors: (err) => {
+                        // Retry on network errors or 5xx (client throws on non-2xx)
+                        const msg = err.message || '';
+                        return msg.includes('fetch failed') || msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504');
+                    }
+                },
+                this.logger,
+                { correlationId, operation: 'DuffelFlightAdapter.searchFlights' }
             );
 
             // Translate response to domain entities
@@ -81,6 +90,31 @@ export class DuffelFlightAdapter implements IFlightPort {
             });
             return [];
         }
+    }
+
+    private getMockFlights(request: FlightSearchRequest): FlightOption[] {
+        // Return 3 mock options
+        const mockSegments = (airline: string, flightNum: string, price: number, time: string) => {
+            return FlightOption.create(
+                [{
+                    origin: AirportCode.create(request.origin),
+                    destination: AirportCode.create(request.destination),
+                    departureTime: new Date(`${request.departureDate}T${time}:00Z`),
+                    arrivalTime: new Date(`${request.departureDate}T${parseInt(time) + 7}:00Z`),
+                    airline,
+                    flightNumber: flightNum
+                }],
+                price,
+                'USD',
+                'https://example.com/book'
+            );
+        };
+
+        return [
+            mockSegments('British Airways', 'BA112', 850, '18:00'),
+            mockSegments('Virgin Atlantic', 'VS004', 920, '20:00'),
+            mockSegments('Delta', 'DL402', 780, '16:30')
+        ];
     }
 
     async getFlightDetails(flightId: string): Promise<FlightOption | null> {
@@ -135,10 +169,13 @@ export class DuffelFlightAdapter implements IFlightPort {
             });
         }
 
+        // Duffel API v2 requires the payload to be wrapped in a 'data' key
         return {
-            slices,
-            passengers: Array(request.passengers || 1).fill({ type: 'adult' }),
-            cabin_class: 'economy'
+            data: {
+                slices,
+                passengers: Array(request.passengers || 1).fill({ type: 'adult' }),
+                cabin_class: 'economy'
+            }
         };
     }
 

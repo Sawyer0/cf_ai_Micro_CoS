@@ -14,6 +14,9 @@ import { D1TaskAdapter } from '../adapters/persistence/d1-task.adapter';
 import { D1EventLogAdapter } from '../adapters/persistence/d1-event-log.adapter';
 import { RateLimiter } from '../api/middleware/rate-limit';
 import { IdempotencyService } from '../api/idempotency';
+import { DuffelApiClient } from '../adapters/mcp/clients/duffel-api.client';
+import { DuffelFlightMapper } from '../adapters/mcp/mappers/duffel-flight.mapper';
+import { FlightSearchValidator } from '../adapters/mcp/validators/flight-search.validator';
 import { AppConfig } from './settings';
 import { ChatService } from '../application/chat.service';
 import { TaskService } from '../application/task.service';
@@ -42,19 +45,34 @@ export interface Container {
     travelService: TravelService;
 }
 
-export function createContainer(env: any, config: AppConfig): Container {
+import { validateBindings } from './bindings.validator';
+import { WorkerEnv } from '../env';
+
+export function createContainer(env: WorkerEnv, config: AppConfig): Container {
     const logger = new Logger('edge-worker');
+
+    // Validate all bindings at startup
+    validateBindings(env, logger);
+
     const metrics = new AnalyticsEngineMetrics(env.ANALYTICS_ENGINE);
 
     // Adapters
-    const llmAdapter = new WorkersAIAdapter(env.AI, logger);
-    const flightAdapter = new DuffelFlightAdapter(config.duffelApiKey || '', logger);
-    const calendarAdapter = new GoogleCalendarAdapter(config.googleCalendarMcpUrl || 'http://localhost:3000', logger);
+    const llmAdapter = new WorkersAIAdapter(env.AI as any, logger);
 
-    if (!env.DB) {
-        logger.error('D1 Database binding (DB) is missing in environment');
-        throw new Error('D1 Database binding (DB) is missing');
-    }
+    // Flight Adapter Dependencies
+    const duffelClient = new DuffelApiClient(config.duffelApiKey || '', logger);
+    const duffelMapper = new DuffelFlightMapper(logger);
+    const flightValidator = new FlightSearchValidator();
+
+    const flightAdapter = new DuffelFlightAdapter(
+        duffelClient,
+        duffelMapper,
+        flightValidator,
+        logger,
+        config.duffelApiKey || ''
+    );
+
+    const calendarAdapter = new GoogleCalendarAdapter(config.googleCalendarMcpUrl || 'http://localhost:3000', logger);
 
     const chatRepository = new D1ChatAdapter(env.DB, logger);
     const taskRepository = new D1TaskAdapter(env.DB, logger);
@@ -68,11 +86,11 @@ export function createContainer(env: any, config: AppConfig): Container {
     return {
         logger,
         metrics,
-        rateLimiter: new RateLimiter(env.RATE_LIMIT_KV, {
+        rateLimiter: new RateLimiter(env.RATE_LIMIT_KV as any, {
             requestsPerMinute: config.rateLimitPerMinute,
             requestsPerHour: config.rateLimitPerHour
         }),
-        idempotency: new IdempotencyService(env.IDEMPOTENCY_KV),
+        idempotency: new IdempotencyService(env.IDEMPOTENCY_KV as any),
 
         // Adapters
         llmAdapter,
@@ -83,7 +101,7 @@ export function createContainer(env: any, config: AppConfig): Container {
         eventLog,
 
         // Durable Objects
-        chatSessions: env.CHAT_SESSIONS,
+        chatSessions: env.CHAT_SESSIONS as any,
 
         // Services
         chatService,

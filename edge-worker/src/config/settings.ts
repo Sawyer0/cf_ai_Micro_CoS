@@ -13,9 +13,11 @@ export interface AppConfig {
     rateLimitPerHour: number;
 }
 
-export function loadConfig(env: any): AppConfig {
+import { WorkerEnv } from '../env';
+
+export function loadConfig(env: WorkerEnv): AppConfig {
     const config: AppConfig = {
-        environment: env.ENVIRONMENT || 'development',
+        environment: (env.ENVIRONMENT as 'development' | 'staging' | 'production') || 'development',
         duffelApiKey: env.DUFFEL_API_KEY,
         googleCalendarMcpUrl: env.GOOGLE_CALENDAR_MCP_URL || 'http://localhost:3000',
         flightsMcpUrl: env.FLIGHTS_MCP_URL || 'http://localhost:3001',

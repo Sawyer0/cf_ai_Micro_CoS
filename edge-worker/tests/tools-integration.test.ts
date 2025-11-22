@@ -3,6 +3,7 @@
  * End-to-end: Chat message → Tool invocation → Tool result → Next LLM turn
  */
 
+import { describe, test, expect, beforeEach } from 'vitest';
 import { ToolRegistry, ToolExecutor } from '../src/tools';
 import { ToolCallParser } from '../src/tool-parser';
 
@@ -15,7 +16,7 @@ const mockEnv = {
 	},
 	IDEMPOTENCY_KV: {
 		get: async (key: string) => null,
-		put: async (key: string, value: string, options?: Record<string, unknown>) => {},
+		put: async (key: string, value: string, options?: Record<string, unknown>) => { },
 	},
 };
 
@@ -236,7 +237,7 @@ describe('Tool Error Handling', () => {
 	});
 
 	test('handles missing required parameters', async () => {
-		const send = () => {};
+		const send = () => { };
 
 		await expect(
 			executor.execute('flights-mcp::search-flights', { origin: 'SFO' }, send as any),
@@ -244,7 +245,7 @@ describe('Tool Error Handling', () => {
 	});
 
 	test('handles invalid IATA codes', async () => {
-		const send = () => {};
+		const send = () => { };
 
 		await expect(
 			executor.execute(
@@ -256,7 +257,7 @@ describe('Tool Error Handling', () => {
 	});
 
 	test('handles invalid date format', async () => {
-		const send = () => {};
+		const send = () => { };
 
 		await expect(
 			executor.execute(

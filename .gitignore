@@ -26,6 +26,7 @@ backend/gcp-oauth.keys.json
 .windsurf/
 .idea/
 .devtools/
+.vscode/
 
 # Windsurf / devtools logs (keep config, ignore generated logs)
 .devtools/logs/

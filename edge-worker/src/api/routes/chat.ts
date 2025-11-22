@@ -29,7 +29,25 @@ export async function handleChatRequest(
     // We need to rewrite the URL to match what the DO expects (/chat)
     const url = new URL(request.url);
     url.pathname = '/chat';
-    const newRequest = new Request(url.toString(), request);
+
+    // CRITICAL: We need to read the body FIRST before creating a new request
+    // because request.body is a ReadableStream that can only be read once,
+    // and it can't be passed directly to a Durable Object in a different context
+    const bodyText = await request.text();
+
+    // Properly clone the request with the new URL and inject Principal ID
+    const headers = new Headers(request.headers);
+    headers.set('X-Principal-Id', principal.id);
+    headers.set('Content-Type', 'application/json'); // Ensure content-type is set
+
+
+
+    const newRequest = new Request(url.toString(), {
+        method: request.method,
+        headers: headers,
+        body: bodyText, // Pass the body as a string, not the stream
+        redirect: request.redirect
+    });
 
     return stub.fetch(newRequest);
 }
