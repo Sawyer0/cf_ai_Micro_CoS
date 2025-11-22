@@ -24,7 +24,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 	private semanticMemory: D1SemanticMemoryRepository;
 	private episodicMemory: D1EpisodicMemoryRepository;
 	private proceduralMemory: D1ProceduralMemoryRepository;
-	private logger: Logger;
+	private logger: Logger = new Logger('chat-session');
 
 	constructor(state: DurableObjectState, env: WorkerEnv) {
 		super(state, env);
@@ -106,7 +106,6 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 		let contextInjection = '';
 
 		// Retrieve all long-term memory layers (semantic, episodic, procedural)
-		const logger = new Logger('chat-session');
 		try {
 			const [semanticMemory, episodicMemory, proceduralMemory] = await Promise.all([
 				this.semanticMemory.getSemanticMemory(principalId),
@@ -267,7 +266,6 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 	}
 
 	private async handleWorkflowResult(request: Request): Promise<Response> {
-		const logger = new Logger('chat-session');
 		const body = (await request.json()) as any;
 		const { message, conversationId, correlationId } = body;
 		logger.info('Received workflow result', {

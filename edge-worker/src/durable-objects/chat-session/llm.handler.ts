@@ -97,6 +97,7 @@ export class LLMHandler {
 		principalId: string,
 		correlationId: string
 	): Promise<Response> {
+		const logger = new Logger('llm-handler');
 		try {
 			const aiStream = (await this.env.AI.run(getModelId(this.env), {
 				messages,
