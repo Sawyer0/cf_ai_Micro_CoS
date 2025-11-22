@@ -2,7 +2,7 @@
 
 An **AI-powered productivity assistant** for busy professionals, built on Cloudflare Workers and Durable Objects. Automatically detects events, extracts tasks, ranks travel options, and generates daily plans using agentic reasoning patterns.
 
-**Status:** Early-stage development | **Tech Stack:**  TypeScript (TanStack Start), Cloudflare (Workers, Durable Objects, Realtime, Workers AI), Llama 3.3, MCP
+**Status:** Early-stage development | **Tech Stack:**  TypeScript (TanStack Start), Cloudflare (Workers, Durable Objects, Realtime, Workers AI), Llama 3.3
 
 ---
 

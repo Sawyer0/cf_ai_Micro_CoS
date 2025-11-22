@@ -5,11 +5,41 @@ import { CorrelationId } from '../../src/domain/shared/value-objects/correlation
 // Mock dependencies
 const mockEnv = {
     ENVIRONMENT: 'test',
-    AI: {},
-    DB: {},
+    AI: {
+        run: vi.fn().mockResolvedValue({ response: 'mock response' })
+    },
+    DB: {
+        prepare: vi.fn(),
+        batch: vi.fn(),
+        exec: vi.fn(),
+        dump: vi.fn(),
+        withSession: vi.fn(),
+    },
     KV: {},
-    CHAT_SESSIONS: {},
-    IDEMPOTENCY_KV: {}
+    CHAT_SESSIONS: {
+        idFromName: vi.fn(),
+        get: vi.fn(),
+    },
+    IDEMPOTENCY_KV: {
+        get: vi.fn(),
+        put: vi.fn(),
+    },
+    RATE_LIMIT_KV: {
+        get: vi.fn(),
+        put: vi.fn(),
+    },
+    TRAVEL_PLANNING: {
+        create: vi.fn(),
+        get: vi.fn(),
+    },
+    TASK_EXTRACTION: {
+        create: vi.fn(),
+        get: vi.fn(),
+    },
+    DAILY_PLANNING: {
+        create: vi.fn(),
+        get: vi.fn(),
+    }
 };
 
 const mockContainer = {

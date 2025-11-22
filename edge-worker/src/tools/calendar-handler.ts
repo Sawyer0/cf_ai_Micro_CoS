@@ -4,7 +4,10 @@
  * See: .agent/tools/google-calendar-mcp/list-events.md
  */
 
-import { Env } from '../env';
+import { WorkerEnv } from '../env';
+import { Logger } from '../observability/logger';
+
+const logger = new Logger('calendar-handler');
 
 export interface ListEventsRequest {
 	calendarId?: string; // Default: 'primary'
@@ -65,12 +68,12 @@ function buildCacheKey(req: ListEventsRequest): string {
 
 /**
  * Handles calendar event list requests
- * TODO: Replace stub with actual Google Calendar API call
+ *
+ * Integration Note: This method currently returns stubbed data for demonstration purposes.
+ * In a production environment, this would be replaced by a direct call to the Google Calendar API
+ * or an MCP client wrapper.
  */
-export async function listEvents(
-	args: Record<string, unknown>,
-	env: Env,
-): Promise<Record<string, unknown>> {
+export async function listEvents(args: Record<string, unknown>, env: WorkerEnv): Promise<Record<string, unknown>> {
 	const req: ListEventsRequest = {
 		calendarId: (args.calendarId as string) || 'primary',
 		timeMin: args.timeMin as string,
@@ -88,11 +91,13 @@ export async function listEvents(
 	try {
 		const cached = await env.IDEMPOTENCY_KV.get(cacheKey);
 		if (cached) {
-			console.log(JSON.stringify({
-				event: 'calendar_list_cache_hit',
-				cacheKey,
-				timestamp: new Date().toISOString(),
-			}));
+			logger.info('Calendar events cache hit', {
+				metadata: {
+					calendarId: req.calendarId,
+					timeMin: req.timeMin,
+					timeMax: req.timeMax,
+				},
+			});
 			return JSON.parse(cached);
 		}
 	} catch (e) {
@@ -164,16 +169,22 @@ export async function listEvents(
 			expirationTtl: 5 * 60,
 		});
 	} catch (e) {
-		console.warn('Failed to cache calendar events', e);
+		logger.warn('Failed to cache calendar events', {
+			metadata: {
+				error: e instanceof Error ? e.message : String(e),
+				calendarId: req.calendarId,
+			},
+		});
 	}
 
-	console.log(JSON.stringify({
-		event: 'calendar_list_completed',
-		calendarId: req.calendarId,
-		eventCount: events.length,
-		timeRange: `${req.timeMin} to ${req.timeMax}`,
-		timestamp: new Date().toISOString(),
-	}));
+	logger.info('Calendar events list completed', {
+		metadata: {
+			calendarId: req.calendarId,
+			eventCount: events.length,
+			timeMin: req.timeMin,
+			timeMax: req.timeMax,
+		},
+	});
 
 	return response;
 }

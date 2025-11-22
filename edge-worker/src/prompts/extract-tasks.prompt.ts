@@ -1,6 +1,6 @@
 /**
  * Task Extraction Prompt Template
- * 
+ *
  * LLM prompt for extracting actionable prep tasks from calendar events
  * following Llama 3.3 best practices:
  * - Clear, explicit instructions
@@ -9,25 +9,27 @@
  * - Structured task fields
  */
 
+import { Logger } from '../observability/logger';
+
 export interface TaskExtractionContext {
-    eventTitle: string;
-    eventDescription?: string;
-    eventStartTime: string;
-    eventLocation?: string;
-    eventAttendees?: string[];
+	eventTitle: string;
+	eventDescription?: string;
+	eventStartTime: string;
+	eventLocation?: string;
+	eventAttendees?: string[];
 }
 
 export interface ExtractedTask {
-    title: string;
-    description: string;
-    priority: 'high' | 'medium' | 'low';
-    deadlineRelativeToEvent: string; // e.g., "1 day before", "2 hours before"
+	title: string;
+	description: string;
+	priority: 'high' | 'medium' | 'low';
+	deadlineRelativeToEvent: string; // e.g., "1 day before", "2 hours before"
 }
 
 export function buildTaskExtractionPrompt(context: TaskExtractionContext): string {
-    const { eventTitle, eventDescription, eventStartTime, eventLocation, eventAttendees } = context;
+	const { eventTitle, eventDescription, eventStartTime, eventLocation, eventAttendees } = context;
 
-    const eventDetails = `
+	const eventDetails = `
 Event: ${eventTitle}
 Start Time: ${eventStartTime}
 ${eventDescription ? `Description: ${eventDescription}` : ''}
@@ -35,8 +37,8 @@ ${eventLocation ? `Location: ${eventLocation}` : ''}
 ${eventAttendees && eventAttendees.length > 0 ? `Attendees: ${eventAttendees.join(', ')}` : ''}
 `.trim();
 
-    // Few-shot examples for consistency
-    const fewShotExample = `
+	// Few-shot examples for consistency
+	const fewShotExample = `
 Example 1:
 Event: Client Presentation - Q4 Strategy Review
 Start Time: 2024-12-15 14:00
@@ -100,7 +102,7 @@ Output:
   }
 ]`;
 
-    return `You are a productivity assistant. Your task is to extract actionable preparation tasks from a calendar event.
+	return `You are a productivity assistant. Your task is to extract actionable preparation tasks from a calendar event.
 
 CALENDAR EVENT:
 ${eventDetails}
@@ -132,41 +134,45 @@ OUTPUT (JSON array only):`;
 }
 
 export function parseExtractedTasks(llmResponse: string): ExtractedTask[] {
-    try {
-        // Clean response: remove markdown code fences, extra whitespace
-        let cleaned = llmResponse.trim()
-            .replace(/```json\n?/g, '')
-            .replace(/```\n?/g, '')
-            .trim();
+	const logger = new Logger('extract-tasks-prompt');
+	try {
+		// Clean response: remove markdown code fences, extra whitespace
+		let cleaned = llmResponse
+			.trim()
+			.replace(/```json\n?/g, '')
+			.replace(/```\n?/g, '')
+			.trim();
 
-        // Extract JSON array
-        const match = cleaned.match(/\[[\s\S]*\]/);
-        if (!match) {
-            console.warn('Could not parse tasks from LLM response, returning empty array');
-            console.warn('LLM response:', llmResponse);
-            return [];
-        }
+		// Extract JSON array
+		const match = cleaned.match(/\[[\s\S]*\]/);
+		if (!match) {
+			logger.warn('Could not parse tasks from LLM response', {
+				metadata: { responsePreview: llmResponse.substring(0, 200) },
+			});
+			return [];
+		}
 
-        const tasks: ExtractedTask[] = JSON.parse(match[0]);
+		const tasks: ExtractedTask[] = JSON.parse(match[0]);
 
-        // Validate structure
-        if (!Array.isArray(tasks)) {
-            console.warn('LLM response is not an array');
-            return [];
-        }
+		// Validate structure
+		if (!Array.isArray(tasks)) {
+			logger.warn('LLM response is not an array', {
+				metadata: { responseType: typeof tasks },
+			});
+			return [];
+		}
 
-        // Filter and validate each task
-        return tasks
-            .filter(task => {
-                return task.title &&
-                    task.description &&
-                    task.priority &&
-                    task.deadlineRelativeToEvent;
-            })
-            .slice(0, 5); // Max 5 tasks as per guidelines
-    } catch (error) {
-        console.error('Error parsing extracted tasks:', error);
-        console.error('LLM response:', llmResponse);
-        return [];
-    }
+		// Filter and validate each task
+		return tasks
+			.filter((task) => {
+				return task.title && task.description && task.priority && task.deadlineRelativeToEvent;
+			})
+			.slice(0, 5); // Max 5 tasks as per guidelines
+	} catch (error) {
+		const err = error instanceof Error ? error : new Error(String(error));
+		logger.error('Error parsing extracted tasks', err, {
+			metadata: { responsePreview: llmResponse.substring(0, 200) },
+		});
+		return [];
+	}
 }

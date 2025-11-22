@@ -4,6 +4,10 @@
  * Format: <tool_call name="tool_name" args={...}></tool_call>
  */
 
+import { Logger } from './observability/logger';
+
+const logger = new Logger('tool-parser');
+
 export interface ParsedToolCall {
 	name: string;
 	args: Record<string, unknown>;
@@ -21,9 +25,7 @@ export class ToolCallParser {
 	 * Process a chunk of text, extracting complete tool_call markers
 	 * Returns: { text: remaining text without tool calls, tools: extracted tool calls }
 	 */
-	processChunk(
-		chunk: string,
-	): { text: string; tools: ParsedToolCall[]; hasIncompleteToolCall: boolean } {
+	processChunk(chunk: string): { text: string; tools: ParsedToolCall[]; hasIncompleteToolCall: boolean } {
 		this.buffer += chunk;
 
 		const tools: ParsedToolCall[] = [];
@@ -47,7 +49,14 @@ export class ToolCallParser {
 				const args = JSON.parse(argsJson);
 				tools.push({ name: toolName, args });
 			} catch (e) {
-				console.error(`Failed to parse tool args: ${argsJson}`, e);
+				const error = e instanceof Error ? e : new Error(String(e));
+				logger.warn('Failed to parse tool call arguments', {
+					metadata: {
+						toolName,
+						argsJson,
+						error: error.message,
+					},
+				});
 				// Skip malformed tool call
 			}
 		}
@@ -101,7 +110,9 @@ export function testParser(): void {
 	const chunk1 =
 		'Let me search for flights. <tool_call name="search_flights" args={"origin":"SFO","destination":"CDG","departure_date":"2025-05-10"}></tool_call> I found some options.';
 	const result1 = parser.processChunk(chunk1);
-	console.log('Test 1:', result1);
+	logger.info('ToolCallParser Test 1', {
+		metadata: { result: result1 },
+	});
 	// Expected: text: 'Let me search for flights.  I found some options.', tools: [{name: 'search_flights', args: {...}}]
 
 	parser.reset();
@@ -110,21 +121,26 @@ export function testParser(): void {
 	const chunk2 =
 		'<tool_call name="list_events" args={"timeMin":"2025-05-10T00:00:00Z","timeMax":"2025-05-15T23:59:59Z"}></tool_call> Your calendar shows... <tool_call name="search_flights" args={"origin":"SFO","destination":"JFK","departure_date":"2025-05-10"}></tool_call> Here are flights.';
 	const result2 = parser.processChunk(chunk2);
-	console.log('Test 2:', result2);
+	logger.info('ToolCallParser Test 2', {
+		metadata: { result: result2 },
+	});
 	// Expected: 2 tools extracted
 
 	parser.reset();
 
 	// Test 3: Incomplete tool call at chunk boundary
-	const chunk3a =
-		'Let me search. <tool_call name="search_flights" args={"origin":"';
+	const chunk3a = 'Let me search. <tool_call name="search_flights" args={"origin":"';
 	const result3a = parser.processChunk(chunk3a);
-	console.log('Test 3a:', result3a);
+	logger.info('ToolCallParser Test 3a', {
+		metadata: { result: result3a },
+	});
 	// Expected: hasIncompleteToolCall: true
 
 	const chunk3b = 'SFO","destination":"CDG","departure_date":"2025-05-10"}></tool_call> Done.';
 	const result3b = parser.processChunk(chunk3b);
-	console.log('Test 3b:', result3b);
+	logger.info('ToolCallParser Test 3b', {
+		metadata: { result: result3b },
+	});
 	// Expected: 1 tool extracted
 
 	parser.reset();
@@ -132,7 +148,9 @@ export function testParser(): void {
 	// Test 4: No tool calls
 	const chunk4 = 'Just regular text, no tools here.';
 	const result4 = parser.processChunk(chunk4);
-	console.log('Test 4:', result4);
+	logger.info('ToolCallParser Test 4', {
+		metadata: { result: result4 },
+	});
 	// Expected: text: 'Just regular text, no tools here.', tools: []
 }
 

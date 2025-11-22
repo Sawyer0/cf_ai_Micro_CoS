@@ -1,7 +1,7 @@
-import { Env } from '../env';
+import { WorkerEnv } from '../env';
 import { Logger } from '../observability/logger';
 
-export function validateBindings(env: Env, logger: Logger): void {
+export function validateBindings(env: WorkerEnv, logger: Logger): void {
     const missingBindings: string[] = [];
 
     // Validate Durable Objects

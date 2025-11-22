@@ -1,4 +1,3 @@
-import type { Env } from './env';
 import type { SseEvent } from './env';
 import { encodeSseEvent } from './env';
 
@@ -69,5 +68,3 @@ export function createSseFromTranscript(transcript: string, correlationId: strin
     },
   });
 }
-
-

@@ -1,4 +1,4 @@
-import type { Env } from './env';
+import { WorkerEnv } from './env';
 
 export function estimateTokensFromMessages(
   messages: Array<{ role?: unknown; content?: unknown }>,
@@ -13,7 +13,7 @@ export function estimateTokensFromMessages(
 }
 
 export async function applyRateLimit(
-  env: Env,
+  env: WorkerEnv,
   principalId: string,
   tokensEstimate: number,
   correlationId: string,
@@ -32,7 +32,7 @@ export async function applyRateLimit(
     if (existing) {
       chatCount = parseInt(existing, 10) || 0;
     }
-  } catch {}
+  } catch { }
 
   if (chatCount >= chatLimit) {
     const reset = chatWindowStartSec + chatWindowSeconds;
@@ -76,7 +76,7 @@ export async function applyRateLimit(
     if (existing) {
       tokensUsed = parseInt(existing, 10) || 0;
     }
-  } catch {}
+  } catch { }
 
   if (tokensUsed + tokensEstimate > tokenLimit) {
     const resetDate = new Date(
@@ -125,7 +125,7 @@ export async function applyRateLimit(
       String(chatCount + 1),
       { expirationTtl: chatWindowSeconds + 5 },
     );
-  } catch {}
+  } catch { }
 
   try {
     tokensUsed += tokensEstimate;
@@ -138,7 +138,7 @@ export async function applyRateLimit(
     await env.RATE_LIMIT_KV.put(tokensKey, String(tokensUsed), {
       expirationTtl: ttlSeconds,
     });
-  } catch {}
+  } catch { }
 
   const remaining = Math.max(0, chatLimit - (chatCount + 1));
   const reset = chatWindowStartSec + chatWindowSeconds;

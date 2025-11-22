@@ -30,7 +30,14 @@ export default {
     // Derive correlation ID once at the top for all paths
     const correlationId = request.headers.get('X-Correlation-ID') || crypto.randomUUID();
     const logger = new Logger('edge-worker');
-    console.log(`[STARTUP] Worker handling request at ${new Date().toISOString()} - VERSION: WEBSOCKET_FIX_V3`);
+    logger.info('Worker handling request', {
+      correlationId,
+      metadata: {
+        method: request.method,
+        url: request.url,
+        userAgent: request.headers.get('user-agent'),
+      },
+    });
 
     try {
       // 1. Load Configuration

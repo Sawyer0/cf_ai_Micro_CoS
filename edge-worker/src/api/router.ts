@@ -156,8 +156,7 @@ export async function handleRequest(
                     CorrelationId.fromString(correlationId.toString()),
                     context.container
                 );
-            } else if (url.pathname.startsWith('/api/tools')) {
-                response = new Response('Tools API - TODO', { status: 501 });
+
             } else {
                 response = new Response('Not Found', { status: 404 });
             }

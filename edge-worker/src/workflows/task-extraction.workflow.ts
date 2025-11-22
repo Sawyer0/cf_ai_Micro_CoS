@@ -18,7 +18,7 @@
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
-import { Env } from '../env';
+import { WorkerEnv } from '../env';
 import { WorkersAIAdapter } from '../adapters/llm/workers-ai.adapter';
 import { D1TaskAdapter } from '../adapters/persistence/d1-task.adapter';
 import { Logger } from '../observability/logger';
@@ -36,7 +36,7 @@ export interface TaskExtractionRequest {
     correlationId: string;
 }
 
-export class TaskExtractionWorkflow extends WorkflowEntrypoint<Env, TaskExtractionRequest> {
+export class TaskExtractionWorkflow extends WorkflowEntrypoint<WorkerEnv, TaskExtractionRequest> {
     async run(event: WorkflowEvent<TaskExtractionRequest>, step: WorkflowStep) {
         const { userId, eventId, eventTitle, eventDescription, eventStartTime, eventLocation, eventAttendees, correlationId } = event.payload;
 
@@ -150,7 +150,7 @@ export class TaskExtractionWorkflow extends WorkflowEntrypoint<Env, TaskExtracti
             });
 
             // Save all tasks (repository handles idempotency if needed)
-            // TODO: Implement batch save method on TaskRepository
+            // Note: Batch save optimization planned for future release
             // For now, save individually
             for (const task of taskAggregates) {
                 await taskRepository.save(task);

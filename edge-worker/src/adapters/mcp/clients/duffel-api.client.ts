@@ -155,12 +155,6 @@ export class DuffelApiClient {
 
 					await this.sleep(delayMs);
 				} else {
-					console.log('[DuffelAPI] Error details:', {
-						status: lastError.message,
-						endpoint,
-						method,
-						attempt
-					});
 					this.logger.error('Duffel API call failed', lastError, {
 						metadata: { correlationId, method, endpoint, attempt }
 					});

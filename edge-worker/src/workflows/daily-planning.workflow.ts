@@ -18,7 +18,7 @@
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
-import { Env } from '../env';
+import { WorkerEnv } from '../env';
 import { WorkersAIAdapter } from '../adapters/llm/workers-ai.adapter';
 import { D1TaskAdapter } from '../adapters/persistence/d1-task.adapter';
 import { Logger } from '../observability/logger';
@@ -39,7 +39,7 @@ export interface DailyPlanningRequest {
     correlationId: string;
 }
 
-export class DailyPlanningWorkflow extends WorkflowEntrypoint<Env, DailyPlanningRequest> {
+export class DailyPlanningWorkflow extends WorkflowEntrypoint<WorkerEnv, DailyPlanningRequest> {
     async run(event: WorkflowEvent<DailyPlanningRequest>, step: WorkflowStep) {
         const { userId, date, timezone, correlationId } = event.payload;
 
@@ -47,7 +47,7 @@ export class DailyPlanningWorkflow extends WorkflowEntrypoint<Env, DailyPlanning
         const logger = new Logger('daily-planning-workflow');
         const llmAdapter = new WorkersAIAdapter(this.env.AI as any, logger);
         const taskRepository = new D1TaskAdapter(this.env.DB, logger);
-        // TODO: Initialize GoogleCalendarAdapter when implemented
+        // Note: GoogleCalendarAdapter initialization pending implementation
         // For now, calendar integration is a placeholder
 
         // Step 1: Fetch calendar events for the day
@@ -58,7 +58,7 @@ export class DailyPlanningWorkflow extends WorkflowEntrypoint<Env, DailyPlanning
             });
 
             try {
-                // TODO: Implement calendar integration
+                // Note: Calendar integration pending adapter implementation
                 // For now, return empty array as placeholder
                 // When GoogleCalendarAdapter is ready, uncomment below:
                 /*

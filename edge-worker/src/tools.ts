@@ -9,9 +9,12 @@
  * - google-calendar-mcp: Query calendar events
  */
 
-import { Env, SseEvent } from './env';
+import { WorkerEnv, SseEvent } from './env';
+import { Logger } from './observability/logger';
 import { searchFlights } from './tools/flights-handler';
 import { listEvents } from './tools/calendar-handler';
+
+const logger = new Logger('tools');
 
 /**
  * Tool definition with metadata and invocation spec
@@ -49,8 +52,7 @@ export interface ToolResultEvent {
  */
 export class ToolRegistry {
 	private tools: Map<string, ToolDefinition> = new Map();
-	private handlers: Map<string, (args: Record<string, unknown>, env: Env) => Promise<unknown>> =
-		new Map();
+	private handlers: Map<string, (args: Record<string, unknown>, env: WorkerEnv) => Promise<unknown>> = new Map();
 
 	constructor() {
 		this.registerToolsFromAgent();
@@ -84,7 +86,7 @@ export class ToolRegistry {
 					required: ['origin', 'destination', 'departure_date'],
 				},
 			},
-			searchFlights,
+			searchFlights
 		);
 
 		// Google Calendar MCP
@@ -112,15 +114,11 @@ export class ToolRegistry {
 					required: ['timeMin', 'timeMax'],
 				},
 			},
-			listEvents,
+			listEvents
 		);
 	}
 
-	register(
-		id: string,
-		definition: ToolDefinition,
-		handler: (args: Record<string, unknown>, env: Env) => Promise<unknown>,
-	): void {
+	register(id: string, definition: ToolDefinition, handler: (args: Record<string, unknown>, env: WorkerEnv) => Promise<unknown>): void {
 		this.tools.set(id, definition);
 		this.handlers.set(id, handler);
 	}
@@ -129,7 +127,7 @@ export class ToolRegistry {
 		return this.tools.get(id);
 	}
 
-	getHandler(id: string): ((args: Record<string, unknown>, env: Env) => Promise<unknown>) | undefined {
+	getHandler(id: string): ((args: Record<string, unknown>, env: WorkerEnv) => Promise<unknown>) | undefined {
 		return this.handlers.get(id);
 	}
 
@@ -144,19 +142,15 @@ export class ToolRegistry {
 export class ToolExecutor {
 	private registry: ToolRegistry;
 	private correlationId: string;
-	private env: Env;
+	private env: WorkerEnv;
 
-	constructor(registry: ToolRegistry, env: Env, correlationId: string) {
+	constructor(registry: ToolRegistry, env: WorkerEnv, correlationId: string) {
 		this.registry = registry;
 		this.env = env;
 		this.correlationId = correlationId;
 	}
 
-	async execute(
-		toolId: string,
-		args: Record<string, unknown>,
-		send: (event: SseEvent) => void,
-	): Promise<unknown> {
+	async execute(toolId: string, args: Record<string, unknown>, send: (event: SseEvent) => void): Promise<unknown> {
 		const tool = this.registry.getTool(toolId);
 		if (!tool) {
 			throw new Error(`Tool not found: ${toolId}`);
@@ -180,15 +174,16 @@ export class ToolExecutor {
 			send(toolCallEvent);
 
 			// Log invocation
-			console.log(JSON.stringify({
+			logger.info('Tool invocation started', {
 				correlationId: this.correlationId,
-				operationId,
-				toolInvocationId,
-				event: 'tool_invocation_started',
-				tool: toolId,
-				args,
-				timestamp: new Date().toISOString(),
-			}));
+				metadata: {
+					toolId,
+					toolName: tool.name,
+					operationId,
+					toolInvocationId,
+					argsSize: JSON.stringify(args).length,
+				},
+			});
 
 			// Execute tool
 			const startTime = performance.now();
@@ -203,33 +198,33 @@ export class ToolExecutor {
 			send(toolResultEvent);
 
 			// Log success
-			console.log(JSON.stringify({
+			logger.info('Tool invocation completed', {
 				correlationId: this.correlationId,
-				operationId,
-				toolInvocationId,
-				event: 'tool_invocation_success',
-				tool: toolId,
-				latency,
-				resultSize: JSON.stringify(result).length,
-				timestamp: new Date().toISOString(),
-			}));
+				metadata: {
+					toolId,
+					toolName: tool.name,
+					operationId,
+					toolInvocationId,
+					latencyMs: latency,
+					resultSize: JSON.stringify(result).length,
+				},
+			});
 
 			return result;
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
+			const err = error instanceof Error ? error : new Error(String(error));
 
 			// Log failure
-			console.log(JSON.stringify({
+			logger.error('Tool invocation failed', err, {
 				correlationId: this.correlationId,
-				operationId,
-				toolInvocationId,
-				event: 'tool_invocation_error',
-				tool: toolId,
-				error: errorMessage,
-				timestamp: new Date().toISOString(),
-			}));
+				metadata: {
+					toolId,
+					operationId,
+					toolInvocationId,
+				},
+			});
 
-			throw error;
+			throw err;
 		}
 	}
 }
