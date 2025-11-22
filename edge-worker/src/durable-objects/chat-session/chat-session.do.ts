@@ -119,7 +119,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 			contextInjection += proceduralMemory.toPromptContext();
 		} catch (error) {
 			const err = error instanceof Error ? error : new Error(String(error));
-			logger.error('Failed to retrieve long-term memory', err, {
+			this.logger.error('Failed to retrieve long-term memory', err, {
 				metadata: { principalId },
 			});
 		}
@@ -127,7 +127,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 		// Trigger workflow or pre-fetch data based on intent
 		try {
 			if (intentResult.workflow === 'travel' && intentResult.entities.destination) {
-				logger.info('Travel intent detected', {
+				this.logger.info('Travel intent detected', {
 					metadata: { entities: intentResult.entities, principalId },
 				});
 
@@ -149,18 +149,18 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 
 				// Pre-fetch flights for immediate context (RAG pattern)
 				const apiKey = this.env.DUFFEL_API_KEY || '';
-				logger.debug('Duffel API key status', {
+				this.logger.debug('Duffel API key status', {
 					metadata: { keyPresent: !!apiKey, keyLength: apiKey.length, principalId },
 				});
 
 				const origin = normalizeAirportCode((intentResult.entities.origin as string) || 'JFK');
 				const destination = normalizeAirportCode(intentResult.entities.destination as string);
 
-				const duffelClient = new DuffelApiClient(apiKey, logger);
-				const duffelMapper = new DuffelFlightMapper(logger);
+				const duffelClient = new DuffelApiClient(apiKey, this.logger);
+				const duffelMapper = new DuffelFlightMapper(this.logger);
 				const flightValidator = new FlightSearchValidator();
 
-				const flightAdapter = new DuffelFlightAdapter(duffelClient, duffelMapper, flightValidator, logger, apiKey);
+				const flightAdapter = new DuffelFlightAdapter(duffelClient, duffelMapper, flightValidator, this.logger, apiKey);
 				const flights = await flightAdapter.searchFlights({
 					origin,
 					destination,
@@ -188,7 +188,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 					},
 				});
 			} else if (intentResult.workflow === 'task') {
-				logger.info('Triggering task extraction workflow', {
+				this.logger.info('Triggering task extraction workflow', {
 					metadata: { entities: intentResult.entities, principalId },
 				});
 				await this.env.TASK_EXTRACTION.create({
@@ -200,7 +200,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 					},
 				});
 			} else if (intentResult.workflow === 'planning') {
-				logger.info('Triggering daily planning workflow', {
+				this.logger.info('Triggering daily planning workflow', {
 					metadata: { entities: intentResult.entities, principalId },
 				});
 				await this.env.DAILY_PLANNING.create({
@@ -214,7 +214,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 			}
 		} catch (error) {
 			const err = error instanceof Error ? error : new Error(String(error));
-			logger.error('Failed to trigger workflow/action', err, {
+			this.logger.error('Failed to trigger workflow/action', err, {
 				metadata: { principalId, conversationId },
 			});
 		}
@@ -225,7 +225,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 		// Inject context into last user message
 		const messagesWithContext = [...body.messages];
 		if (contextInjection) {
-			logger.info('Injecting context into user message', {
+			this.logger.info('Injecting context into user message', {
 				metadata: {
 					contextLength: contextInjection.length,
 					principalId,
@@ -238,14 +238,14 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 						...messagesWithContext[i],
 						content: messagesWithContext[i].content + contextInjection,
 					};
-					logger.debug('Context injected into message', {
+					this.logger.debug('Context injected into message', {
 						metadata: { messageIndex: i, principalId },
 					});
 					break;
 				}
 			}
 		} else {
-			logger.debug('No context to inject', {
+			this.logger.debug('No context to inject', {
 				metadata: { principalId, conversationId },
 			});
 		}
@@ -268,7 +268,7 @@ export class ChatSessionDO extends DurableObject<WorkerEnv> {
 	private async handleWorkflowResult(request: Request): Promise<Response> {
 		const body = (await request.json()) as any;
 		const { message, conversationId, correlationId } = body;
-		logger.info('Received workflow result', {
+		this.logger.info('Received workflow result', {
 			metadata: { messageLength: message?.length, conversationId, correlationId }
 		});
 
