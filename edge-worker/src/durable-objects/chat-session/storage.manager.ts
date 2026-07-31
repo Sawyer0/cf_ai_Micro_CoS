@@ -89,4 +89,98 @@ export class StorageManager {
 			metadata: { retentionDays },
 		});
 	}
+
+	/**
+	 * Retrieve the last user message from conversation history
+	 * Used to extract travel entities from previous messages
+	 */
+	async getLastUserMessage(conversationId: string): Promise<string | null> {
+		await this.ensureSchema();
+		const result = await this.db
+			.prepare(
+				'SELECT content FROM chat_events WHERE conversation_id = ?1 AND role = "user" ORDER BY created_at DESC LIMIT 1',
+			)
+			.bind(conversationId)
+			.first<{ content: string }>();
+
+		return result?.content ?? null;
+	}
+
+	/**
+	 * Retrieve the last N user messages for entity extraction context
+	 */
+	async getLastUserMessages(conversationId: string, limit: number = 3): Promise<string[]> {
+		await this.ensureSchema();
+		const results = await this.db
+			.prepare(
+				'SELECT content FROM chat_events WHERE conversation_id = ?1 AND role = "user" ORDER BY created_at DESC LIMIT ?2',
+			)
+			.bind(conversationId, limit)
+			.all<{ content: string }>();
+
+		return results.results?.map((r) => r.content) ?? [];
+	}
+
+	/**
+	 * Retrieve full conversation history (both user and assistant messages)
+	 * Used to provide context for the LLM so it can answer follow-up questions
+	 */
+	async getConversationHistory(
+		conversationId: string,
+		limit: number = 20,
+	): Promise<Array<{ role: string; content: string }>> {
+		await this.ensureSchema();
+		const results = await this.db
+			.prepare(
+				'SELECT role, content FROM chat_events WHERE conversation_id = ?1 ORDER BY created_at ASC LIMIT ?2',
+			)
+			.bind(conversationId, limit)
+			.all<{ role: string; content: string }>();
+
+		return results.results ?? [];
+	}
+
+	/**
+	 * List all conversations for a principal
+	 * Returns summary: conversation_id, first message, last updated time
+	 */
+	async listConversations(
+		principalId: string,
+	): Promise<Array<{ conversation_id: string; firstMessage: string; lastUpdated: string; messageCount: number }>> {
+		await this.ensureSchema();
+
+		const results = await this.db
+			.prepare(
+				`SELECT 
+					cs.conversation_id,
+					(SELECT content FROM chat_events WHERE conversation_id = cs.conversation_id AND role = 'user' ORDER BY created_at ASC LIMIT 1) as firstMessage,
+					cs.updated_at as lastUpdated,
+					(SELECT COUNT(*) FROM chat_events WHERE conversation_id = cs.conversation_id) as messageCount
+				FROM chat_sessions cs
+				WHERE cs.principal_id = ?1
+				ORDER BY cs.updated_at DESC`,
+			)
+			.bind(principalId)
+			.all<{ conversation_id: string; firstMessage: string; lastUpdated: string; messageCount: number }>();
+
+		return results.results ?? [];
+	}
+
+	/**
+	 * Get all messages for a conversation
+	 */
+	async getConversationMessages(
+		conversationId: string,
+	): Promise<Array<{ role: string; content: string; createdAt: string }>> {
+		await this.ensureSchema();
+
+		const results = await this.db
+			.prepare(
+				'SELECT role, content, created_at as createdAt FROM chat_events WHERE conversation_id = ?1 ORDER BY created_at ASC',
+			)
+			.bind(conversationId)
+			.all<{ role: string; content: string; createdAt: string }>();
+
+		return results.results ?? [];
+	}
 }

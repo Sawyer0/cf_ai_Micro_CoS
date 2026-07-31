@@ -107,8 +107,8 @@ interface DuffelSegment {
 		iata_code: string;
 		name: string;
 	};
-	departure_at: string;
-	arrival_at: string;
+	departing_at: string;
+	arriving_at: string;
 	duration: string; // ISO 8601 duration
 	marketing_carrier: {
 		iata_code: string;
@@ -164,44 +164,63 @@ function isoDurationToMinutes(duration: string): number {
  * Maps Duffel offer to FlightOption
  */
 function mapDuffelOfferToFlightOption(offer: DuffelOffer, sliceIndex: number = 0): FlightOption {
-	const slice = offer.slices[sliceIndex];
-	const firstSegment = slice.segments[0];
-	const lastSegment = slice.segments[slice.segments.length - 1];
+	const slice = offer.slices?.[sliceIndex];
+	if (!slice) {
+		throw new Error(`No slice found at index ${sliceIndex}`);
+	}
+
+	const firstSegment = slice.segments?.[0];
+	const lastSegment = slice.segments?.[slice.segments.length - 1];
+
+	if (!firstSegment || !lastSegment) {
+		throw new Error(`Missing segments in slice at index ${sliceIndex}`);
+	}
+
+	if (!firstSegment.departing_at) {
+		throw new Error(`Missing departing_at in first segment`);
+	}
+
+	if (!lastSegment.arriving_at) {
+		throw new Error(`Missing arriving_at in last segment`);
+	}
 
 	// Calculate total duration
 	const totalDuration = slice.segments.reduce((acc, seg) => acc + isoDurationToMinutes(seg.duration), 0);
 
+	const depParts = firstSegment.departing_at.split('T');
+	const arrParts = lastSegment.arriving_at.split('T');
+
 	return {
 		id: offer.id,
-		airline: firstSegment.operating_carrier.iata_code,
-		airline_name: firstSegment.operating_carrier.name,
-		flight_number: firstSegment.flight_number,
+		airline: firstSegment.operating_carrier?.iata_code || 'unknown',
+		airline_name: firstSegment.operating_carrier?.name || 'unknown',
+		flight_number: firstSegment.flight_number || 'unknown',
 		origin: {
-			code: firstSegment.origin.iata_code,
-			name: firstSegment.origin.name,
+			code: firstSegment.origin?.iata_code || 'unknown',
+			name: firstSegment.origin?.name || 'unknown',
 		},
 		destination: {
-			code: lastSegment.destination.iata_code,
-			name: lastSegment.destination.name,
+			code: lastSegment.destination?.iata_code || 'unknown',
+			name: lastSegment.destination?.name || 'unknown',
 		},
 		departure: {
-			date: firstSegment.departure_at.split('T')[0],
-			time: firstSegment.departure_at.split('T')[1].substring(0, 5),
-			datetime: firstSegment.departure_at,
+			date: depParts[0] || '',
+			time: depParts[1]?.substring(0, 5) || '',
+			datetime: firstSegment.departing_at,
 		},
 		arrival: {
-			date: lastSegment.arrival_at.split('T')[0],
-			time: lastSegment.arrival_at.split('T')[1].substring(0, 5),
-			datetime: lastSegment.arrival_at,
+			date: arrParts[0] || '',
+			time: arrParts[1]?.substring(0, 5) || '',
+			datetime: lastSegment.arriving_at,
 		},
 		duration_minutes: totalDuration,
 		stops: slice.segments.length - 1,
 		direct: slice.segments.length === 1,
 		price: {
-			amount: parseFloat(offer.total_amount),
-			currency: offer.total_currency,
+			amount: parseFloat(offer.total_amount || '0'),
+			currency: offer.total_currency || 'USD',
 		},
-		expires_at: offer.expires_at,
+		expires_at: offer.expires_at || '',
 	};
 }
 
@@ -223,26 +242,8 @@ export async function searchFlights(args: Record<string, unknown>, env: WorkerEn
 	// 1. Validate input
 	validateRequest(req);
 
-	// 2. Check cache
-	const cacheKey = buildCacheKey(req);
-	try {
-		const cached = await env.IDEMPOTENCY_KV.get(cacheKey);
-		if (cached) {
-			logger.info('Flight search cache hit', {
-				metadata: {
-					cacheKey,
-					origin: req.origin,
-					destination: req.destination,
-					departureDate: req.departure_date,
-				},
-			});
-			return JSON.parse(cached);
-		}
-	} catch (e) {
-		// Cache miss, continue
-	}
-
-	// 3. Call Duffel API
+	// Cache is checked in ToolExecutor before this handler is called
+	// 2. Call Duffel API
 	const apiKey = env.DUFFEL_API_KEY;
 	if (!apiKey) {
 		throw new Error('DUFFEL_API_KEY environment variable is required');
@@ -321,8 +322,27 @@ export async function searchFlights(args: Record<string, unknown>, env: WorkerEn
 		const offerData = (await offerResponse.json()) as { data: DuffelOfferRequest };
 		const duffelOffers = offerData.data.offers || [];
 
+		logger.debug('Duffel API response received', {
+			metadata: {
+				offerCount: duffelOffers.length,
+				firstOfferStructure: duffelOffers.length > 0 ? JSON.stringify(duffelOffers[0]).substring(0, 500) : 'none',
+			},
+		});
+
 		// Map Duffel offers to FlightOption format
-		const flights: FlightOption[] = duffelOffers.map((offer) => mapDuffelOfferToFlightOption(offer, 0));
+		const flights: FlightOption[] = duffelOffers.map((offer, idx) => {
+			try {
+				return mapDuffelOfferToFlightOption(offer, 0);
+			} catch (e) {
+				logger.error('Failed to map offer', e instanceof Error ? e : new Error(String(e)), {
+					metadata: {
+						offerIndex: idx,
+						offerStructure: JSON.stringify(offer).substring(0, 500),
+					},
+				});
+				throw e;
+			}
+		});
 
 		const response = {
 			status: 'success',
@@ -338,13 +358,13 @@ export async function searchFlights(args: Record<string, unknown>, env: WorkerEn
 
 		// 4. Cache results for 30 minutes
 		try {
+			const cacheKey = buildCacheKey(req);
 			await env.IDEMPOTENCY_KV.put(cacheKey, JSON.stringify(response), {
 				expirationTtl: 30 * 60,
 			});
 		} catch (e) {
 			logger.warn('Failed to cache flight results', {
 				metadata: {
-					cacheKey,
 					error: e instanceof Error ? e.message : String(e),
 				},
 			});

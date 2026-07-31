@@ -165,6 +165,45 @@ export class ToolExecutor {
 		const toolInvocationId = crypto.randomUUID();
 
 		try {
+			// Check cache before invoking (for cacheable tools)
+			const cacheKey = this.buildCacheKey(toolId, args);
+			let result: unknown;
+			let fromCache = false;
+
+			if (cacheKey) {
+				try {
+					const cached = await this.env.IDEMPOTENCY_KV.get(cacheKey);
+					if (cached) {
+						result = JSON.parse(cached);
+						fromCache = true;
+
+						// Log cache hit without invoking handler
+						logger.info('Tool result from cache', {
+							correlationId: this.correlationId,
+							metadata: {
+								toolId,
+								toolName: tool.name,
+								operationId,
+								toolInvocationId,
+								cacheKey,
+								resultSize: cached.length,
+							},
+						});
+
+						// Emit tool_result event directly
+						const toolResultEvent: ToolResultEvent = {
+							type: 'tool_result',
+							result: result as Record<string, unknown>,
+						};
+						send(toolResultEvent);
+
+						return result;
+					}
+				} catch (e) {
+					// Cache miss or error, continue to invoke handler
+				}
+			}
+
 			// Emit tool_call event
 			const toolCallEvent: ToolCallEvent = {
 				type: 'tool_call',
@@ -187,7 +226,7 @@ export class ToolExecutor {
 
 			// Execute tool
 			const startTime = performance.now();
-			const result = await handler(args, this.env);
+			result = await handler(args, this.env);
 			const latency = Math.round(performance.now() - startTime);
 
 			// Emit tool_result event
@@ -226,6 +265,27 @@ export class ToolExecutor {
 
 			throw err;
 		}
+	}
+
+	private buildCacheKey(toolId: string, args: Record<string, unknown>): string | null {
+		// Only cache flight and calendar searches
+		if (toolId === 'flights-mcp::search-flights') {
+			const origin = args.origin as string;
+			const destination = args.destination as string;
+			const departureDate = args.departure_date as string;
+			const cabinClass = (args.cabin_class as string) || 'economy';
+			return `flights:${origin}:${destination}:${departureDate}:${cabinClass}`;
+		}
+
+		if (toolId === 'google-calendar-mcp::list-events') {
+			const calendarId = args.calendarId as string | undefined;
+			const timeMin = args.timeMin as string;
+			const timeMax = args.timeMax as string;
+			const maxResults = (args.maxResults as number) || 25;
+			return `calendar:${calendarId || 'primary'}:${timeMin}:${timeMax}:${maxResults}`;
+		}
+
+		return null;
 	}
 }
 

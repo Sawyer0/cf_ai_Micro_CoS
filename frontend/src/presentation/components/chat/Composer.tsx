@@ -1,64 +1,45 @@
 import * as React from "react";
+import { ComposerPrimitive, ThreadPrimitive } from "@assistant-ui/react";
+import { Send } from "lucide-react";
 
 interface ComposerProps {
-  onSend: (message: string) => void;
-  isLoading: boolean;
+	placeholder?: string;
+	disabled?: boolean;
 }
 
-export function Composer({ onSend, isLoading }: ComposerProps) {
-  const [input, setInput] = React.useState("");
-  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
-
-    onSend(trimmed);
-    setInput("");
-
-    // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && e.ctrlKey) {
-      handleSubmit(e as any);
-    }
-  };
-
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-
-    // Auto-resize textarea
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height =
-        Math.min(textareaRef.current.scrollHeight, 200) + "px";
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      <textarea
-        ref={textareaRef}
-        value={input}
-        onChange={handleInput}
-        onKeyDown={handleKeyDown}
-        placeholder="Type your message... (Ctrl+Enter to send)"
-        disabled={isLoading}
-        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed resize-none"
-        rows={1}
-      />
-      <button
-        type="submit"
-        disabled={isLoading || !input.trim()}
-        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
-      >
-        Send
-      </button>
-    </form>
-  );
+export function Composer({ placeholder = "Type your message...", disabled = false }: ComposerProps) {
+	return (
+		<ComposerPrimitive.Root className="border-t border-slate-800 bg-slate-900 p-4">
+			<div className="flex gap-3">
+				<ComposerPrimitive.Input
+					placeholder={placeholder}
+					disabled={disabled}
+					className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-600 disabled:opacity-50 resize-none"
+				/>
+				<ThreadPrimitive.If running={false}>
+					<ComposerPrimitive.Send
+						asChild
+						disabled={disabled}
+						className="self-end rounded-lg bg-cyan-600 px-4 py-3 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer"
+					>
+						<button type="button">
+							<Send className="w-4 h-4" />
+							Send
+						</button>
+					</ComposerPrimitive.Send>
+				</ThreadPrimitive.If>
+				<ThreadPrimitive.If running={true}>
+					<button
+						disabled
+						className="self-end rounded-lg bg-slate-600 px-4 py-3 text-sm font-medium text-white opacity-50 cursor-not-allowed flex items-center gap-2"
+					>
+						Sending...
+					</button>
+				</ThreadPrimitive.If>
+			</div>
+			<p className="text-xs text-slate-500 mt-2">
+				Press <kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">Ctrl+Enter</kbd> to send
+			</p>
+		</ComposerPrimitive.Root>
+	);
 }

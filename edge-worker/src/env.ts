@@ -65,6 +65,8 @@ export interface WorkerEnv {
 	FLIGHTS_MCP_URL?: string;
 }
 
+// Base system prompt - chat responses use buildChatSystemPrompt() from prompts/chat-response.prompt.ts
+// to dynamically include flight data instructions when needed
 export const SYSTEM_PROMPT =
 	'You are Micro Chief of Staff (Micro CoS), a calm, structured chief-of-staff assistant for a busy professional. ' +
 	'Always respond in clear, natural-sounding, grammatically correct sentences and finish your thoughts instead of trailing off. ' +
@@ -72,8 +74,11 @@ export const SYSTEM_PROMPT =
 
 export type SseEvent =
 	| { type: 'token'; token: string }
-	| { type: 'tool_call'; name: string; args: Record<string, unknown> }
-	| { type: 'tool_result'; result: Record<string, unknown> }
+	| { type: 'thinking'; message: string } // LLM is thinking/deciding
+	| { type: 'tool_call'; name: string; args: Record<string, unknown> } // Tool call initiated
+	| { type: 'tool_start'; toolName: string } // Tool execution started
+	| { type: 'tool_result'; result: Record<string, unknown> } // Tool execution complete
+	| { type: 'tool_error'; toolName: string; error: string } // Tool execution failed
 	| { type: 'done'; message_id: string }
 	| { type: 'error'; error: string };
 

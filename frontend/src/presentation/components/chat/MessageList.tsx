@@ -1,59 +1,39 @@
 import * as React from "react";
-import { AssistantMessage, UserMessage } from "@assistant-ui/react-ui";
-import type { MessageEntity } from "../../../domain/entities/Message";
+import { ThreadPrimitive } from "@assistant-ui/react";
 
-interface MessageListProps {
-  messages: MessageEntity[];
-  isStreaming: boolean;
-  streamingContent: string;
-}
-
-export function MessageList({
-  messages,
-  isStreaming,
-  streamingContent,
-}: MessageListProps) {
-  return (
-    <div className="flex-1 overflow-y-auto space-y-4 p-4">
-      {messages.map((message) => (
-        <div key={message.id} className="flex gap-3">
-          {message.role === "assistant" ? (
-            <>
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-xs font-semibold">
-                A
-              </div>
-              <div className="flex-1 bg-slate-800 rounded-lg p-3 text-sm text-slate-100">
-                {message.content}
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 text-right">
-              <div className="inline-block bg-cyan-600 rounded-lg p-3 text-sm text-white max-w-xs">
-                {message.content}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-
-      {isStreaming && streamingContent && (
-        <div className="flex gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-xs font-semibold">
-            A
-          </div>
-          <div className="flex-1 bg-slate-800 rounded-lg p-3 text-sm text-slate-100">
-            {streamingContent}
-            <span className="inline-block w-2 h-4 ml-1 bg-slate-400 animate-pulse" />
-          </div>
-        </div>
-      )}
-
-      {isStreaming && !streamingContent && (
-        <div className="px-4 pb-3 text-xs text-slate-400 flex items-center gap-2">
-          <span className="inline-flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-          <span>Assistant is thinking…</span>
-        </div>
-      )}
-    </div>
-  );
+/**
+ * MessageList - Simple message list using assistant-ui ThreadPrimitive
+ * Renders user and assistant messages with auto-scrolling
+ */
+export function MessageList() {
+	return (
+		<ThreadPrimitive.Root className="flex flex-col h-full">
+			<ThreadPrimitive.Viewport className="flex-1 overflow-y-auto px-4 py-6">
+				<ThreadPrimitive.Messages
+					components={{
+						UserMessage: ({ message }) => (
+							<div className="mb-4 flex justify-end">
+								<div className="max-w-xs lg:max-w-md xl:max-w-lg px-4 py-2 rounded-lg bg-cyan-600 text-white">
+									<p className="text-sm">{message.content[0]?.text || ""}</p>
+								</div>
+							</div>
+						),
+						AssistantMessage: ({ message }) => (
+							<div className="mb-4 flex justify-start">
+								<div className="max-w-xs lg:max-w-md xl:max-w-lg px-4 py-2 rounded-lg bg-slate-800 text-slate-100">
+									<p className="text-sm">{message.content[0]?.text || ""}</p>
+								</div>
+							</div>
+						),
+					}}
+				/>
+				<ThreadPrimitive.If empty>
+					<div className="flex items-center justify-center h-full text-slate-400">
+						<p>No messages yet</p>
+					</div>
+				</ThreadPrimitive.If>
+				<ThreadPrimitive.ScrollToBottom />
+			</ThreadPrimitive.Viewport>
+		</ThreadPrimitive.Root>
+	);
 }

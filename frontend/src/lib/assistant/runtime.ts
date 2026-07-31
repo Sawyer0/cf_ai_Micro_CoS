@@ -53,80 +53,96 @@ export function setConversationId(id: string): void {
 
 type TextPart = { type: "text"; text: string };
 
+interface StreamEvent {
+	type: string;
+	token?: string;
+	error?: string;
+	message?: string;
+	toolName?: string;
+}
+
 async function streamAssistantResponse(
-  userText: string,
-  conversationId: string,
-  appendAssistantChunk: (chunk: string) => void,
+	userText: string,
+	conversationId: string,
+	appendAssistantChunk: (chunk: string) => void,
 ): Promise<void> {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
-  const url = `${baseUrl}/api/chat`;
+	const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+	const url = `${baseUrl}/api/chat`;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Test-Bypass-Auth": "true",
-    },
-    body: JSON.stringify({
-      messages: [
-        {
-          role: "user",
-          content: userText,
-        },
-      ],
-      stream: true,
-      conversation_id: conversationId,
-    }),
-  });
+	const response = await fetch(url, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-Test-Bypass-Auth": "true",
+		},
+		body: JSON.stringify({
+			messages: [
+				{
+					role: "user",
+					content: userText,
+				},
+			],
+			stream: true,
+			conversation_id: conversationId,
+		}),
+	});
 
-  if (!response.ok || !response.body) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
+	if (!response.ok || !response.body) {
+		throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+	}
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    buffer += decoder.decode(value, { stream: true });
+	while (true) {
+		const { value, done } = await reader.read();
+		if (done) break;
+		if (!value) continue;
+		buffer += decoder.decode(value, { stream: true });
 
-    let separatorIndex: number;
-    while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
-      const rawEvent = buffer.slice(0, separatorIndex).trim();
-      buffer = buffer.slice(separatorIndex + 2);
+		let separatorIndex: number;
+		while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
+			const rawEvent = buffer.slice(0, separatorIndex).trim();
+			buffer = buffer.slice(separatorIndex + 2);
 
-      const lines = rawEvent.split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const json = trimmed.slice("data:".length).trim();
-        if (!json) continue;
-        if (json === "[DONE]") {
-          return;
-        }
+			const lines = rawEvent.split("\n");
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (!trimmed.startsWith("data:")) continue;
+				const json = trimmed.slice("data:".length).trim();
+				if (!json) continue;
+				if (json === "[DONE]") {
+					return;
+				}
 
-        let event: { type: string; token?: string; error?: string };
-        try {
-          event = JSON.parse(json) as {
-            type: string;
-            token?: string;
-            error?: string;
-          };
-        } catch {
-          continue;
-        }
+				let event: StreamEvent;
+				try {
+					event = JSON.parse(json) as StreamEvent;
+				} catch {
+					continue;
+				}
 
-        if (event.type === "token" && typeof event.token === "string") {
-          appendAssistantChunk(event.token);
-        } else if (event.type === "error" && typeof event.error === "string") {
-          appendAssistantChunk(`\n[error] ${event.error}`);
-        }
-      }
-    }
-  }
+				if (event.type === "token" && typeof event.token === "string") {
+					appendAssistantChunk(event.token);
+				} else if (event.type === "thinking" && event.message) {
+					// Show thinking indicator
+					appendAssistantChunk(`\n🧠 ${event.message}\n`);
+				} else if (event.type === "tool_start" && event.toolName) {
+					// Show tool execution start
+					appendAssistantChunk(`\n⚡ ${event.toolName} - Executing…\n`);
+				} else if (event.type === "tool_result" && event.toolName) {
+					// Show tool completed
+					appendAssistantChunk(`✓ ${event.toolName} - Complete\n`);
+				} else if (event.type === "tool_error" && event.toolName && event.error) {
+					// Show tool error
+					appendAssistantChunk(`✗ ${event.toolName} - Failed: ${event.error}\n`);
+				} else if (event.type === "error" && typeof event.error === "string") {
+					appendAssistantChunk(`\n[error] ${event.error}`);
+				}
+			}
+		}
+	}
 }
 
 export function useCloudflareRuntime() {

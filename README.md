@@ -2,7 +2,7 @@
 
 An **AI-powered productivity assistant** for busy professionals, built on Cloudflare Workers and Durable Objects. Automatically detects events, extracts tasks, ranks travel options, and generates daily plans using agentic reasoning patterns.
 
-**Status:** Early-stage development | **Tech Stack:**  TypeScript (TanStack Start), Cloudflare (Workers, Durable Objects, Realtime, Workers AI), Llama 3.3
+**Status:** Early-stage development | **Tech Stack:** TypeScript (TanStack Start), Cloudflare (Workers, Durable Objects, Realtime, Workers AI), Llama 3.3
 
 ---
 
@@ -250,14 +250,13 @@ emit: chat_message_received
 ### Development & DevOps
 
 - **Languages:**
-  - TypeScript (TanStack Start frontend + client integrations)
-  - Python (FastAPI backend services)
+  - TypeScript (Cloudflare Workers edge-worker + TanStack Start frontend)
 - **Package Managers:**
-  - npm/yarn (frontend)
+  - npm (per-package: `edge-worker/`, `frontend/`)
 - **Build:**
-  - esbuild / Vite (frontend)
+  - Vite (frontend)
 - **Testing:**
-  - Jest / Vitest for frontend
+  - Vitest
 - **Deployment:**
   - Wrangler CLI for Cloudflare Workers (edge, Realtime, Workers AI, Durable Objects)
 
@@ -267,8 +266,8 @@ emit: chat_message_received
 
 ### Prerequisites
 
-- **Node.js** 20+ (LTS recommended)
-- **npm** or **yarn**
+- **Node.js** 22.12+ (required for TanStack Start frontend)
+- **npm**
 - **Cloudflare Account** (free tier OK for MVP)
 - **Duffel API key** (free tier available, sign up at https://duffel.com)
 
@@ -284,9 +283,6 @@ emit: chat_message_received
 2. **Install dependencies:**
 
    ```bash
-   # Install root dependencies (if any)
-   npm install
-
    # Install Backend dependencies
    cd edge-worker
    npm install
@@ -299,8 +295,9 @@ emit: chat_message_received
    ```
 
 3. **Set up environment variables:**
-   
+
    Create `.env` in `edge-worker/`:
+
    ```
    DUFFEL_API_KEY=<your_duffel_key>
    CLOUDFLARE_ACCOUNT_ID=<your_account_id>
@@ -308,6 +305,7 @@ emit: chat_message_received
    ```
 
    Create `.env` in `frontend/`:
+
    ```
    VITE_API_BASE_URL=http://127.0.0.1:8787
    ```
@@ -317,6 +315,7 @@ emit: chat_message_received
    You need to run both the backend and frontend in separate terminals.
 
    **Terminal 1 (Backend):**
+
    ```bash
    cd edge-worker
    npm run dev
@@ -324,6 +323,7 @@ emit: chat_message_received
    ```
 
    **Terminal 2 (Frontend):**
+
    ```bash
    cd frontend
    npm run dev
@@ -336,18 +336,20 @@ emit: chat_message_received
 ### Deployment
 
 **Backend (Cloudflare Workers):**
+
 ```bash
 cd edge-worker
 npm run deploy
 ```
 
 **Frontend (Cloudflare Pages):**
-The frontend is deployed via GitHub Actions automatically on push to main. 
-To deploy manually:
+The frontend is deployed via GitHub Actions automatically on push to main.
+To deploy manually (using the Nitro/TanStack Start output directory):
+
 ```bash
 cd frontend
 npm run build
-npx wrangler pages deploy dist --project-name=micro-cos-frontend
+npx wrangler pages deploy .output/public --project-name=micro-cos-frontend
 ```
 
 ---

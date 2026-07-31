@@ -86,25 +86,8 @@ export async function listEvents(args: Record<string, unknown>, env: WorkerEnv):
 	// 1. Validate input
 	validateRequest(req);
 
-	// 2. Check cache
-	const cacheKey = buildCacheKey(req);
-	try {
-		const cached = await env.IDEMPOTENCY_KV.get(cacheKey);
-		if (cached) {
-			logger.info('Calendar events cache hit', {
-				metadata: {
-					calendarId: req.calendarId,
-					timeMin: req.timeMin,
-					timeMax: req.timeMax,
-				},
-			});
-			return JSON.parse(cached);
-		}
-	} catch (e) {
-		// Cache miss, continue
-	}
-
-	// 3. Call Google Calendar API (STUB: replace with real implementation)
+	// Cache is checked in ToolExecutor before this handler is called
+	// 2. Call Google Calendar API (STUB: replace with real implementation)
 	// For now, return mock data
 	const events: CalendarEvent[] = [
 		{
@@ -165,6 +148,7 @@ export async function listEvents(args: Record<string, unknown>, env: WorkerEnv):
 
 	// 4. Cache results for 5 minutes
 	try {
+		const cacheKey = buildCacheKey(req);
 		await env.IDEMPOTENCY_KV.put(cacheKey, JSON.stringify(response), {
 			expirationTtl: 5 * 60,
 		});

@@ -3,7 +3,7 @@ import path from 'path';
 
 export default defineConfig({
     test: {
-        include: ['tests/unit/**/*.test.ts'],
+        include: ['tests/unit/**/*.test.ts', 'tests/prompts/**/*.test.ts'],
         alias: {
             '@': path.resolve(__dirname, './src'),
         },
